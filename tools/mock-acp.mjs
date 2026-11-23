@@ -253,6 +253,26 @@ rl.on('line', async (line) => {
       sessions.set(params.sessionId, s);
       update(params.sessionId, { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'An earlier prompt' } });
       update(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'An earlier answer.' } });
+      // MOCK_HISTORY=N: a long session, as weeks of work leave one: N turns,
+      // each with tool calls (reads, edits, commands) and a long answer.
+      const turns = Number(process.env.MOCK_HISTORY || 0);
+      const sid = params.sessionId;
+      const code = Array.from({ length: 60 }, (_, i) => `    const value${i} = compute(${i}, "some text to make the line longer");`).join('\n');
+      for (let t = 0; t < turns; t++) {
+        update(sid, { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: `Turn ${t}: fix the report screen, then run the tests and tell me what changed.` } });
+        update(sid, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: 'Let me read the files first. '.repeat(20) } });
+        for (let k = 0; k < 12; k++) {
+          const tid = `h${t}-${k}`;
+          const kind = ['read', 'edit', 'execute', 'search'][k % 4];
+          update(sid, { sessionUpdate: 'tool_call', toolCallId: tid, title: `${kind} src/report/file${k}.ts`, kind, status: 'pending', rawInput: { file_path: `src/report/file${k}.ts`, command: `npm test -- file${k}` } });
+          const content = kind === 'edit'
+            ? [{ type: 'diff', path: `src/report/file${k}.ts`, oldText: code, newText: code.replace(/compute/g, 'calculate') }]
+            : [{ type: 'content', content: { type: 'text', text: code } }];
+          update(sid, { sessionUpdate: 'tool_call_update', toolCallId: tid, status: 'completed', content });
+        }
+        const answer = `## Turn ${t}\n\nI changed the report screen.\n\n` + '- A point about the change, with `code` and **bold** words.\n'.repeat(15) + '\n```ts\n' + code + '\n```\n';
+        for (let p = 0; p < answer.length; p += 400) update(sid, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: answer.slice(p, p + 400) } });
+      }
       return send({ id, result: options(s) });
     }
     case 'session/set_config_option': {

@@ -1,11 +1,11 @@
-# BM Coding Agent
+# BM Relay
 
 Ứng dụng desktop cho các coding agent, viết bằng Zig trên
 [myzig](../../projects/myzig): giao diện native vẽ bằng GPU, không dùng
 webview. Chạy được mọi agent hỗ trợ [ACP](https://agentclientprotocol.com):
 Claude Code, Codex, Gemini CLI, OpenCode, pi hoặc agent của riêng bạn.
 
-![BM Coding Agent](docs/screenshot.png)
+![BM Relay](docs/screenshot.png)
 
 ## Chạy thử
 
@@ -20,7 +20,7 @@ myzig build                            # bản release kèm icon và bộ cài
 
 ## Cài đặt
 
-Chạy `BM Coding Agent Setup <version> x86_64.exe` (hoặc giải nén bản
+Chạy `BM Relay Setup <version> x86_64.exe` (hoặc giải nén bản
 portable). Bộ cài chưa ký số: SmartScreen hỏi thì chọn More info → Run anyway.
 Máy cần có:
 
@@ -41,8 +41,8 @@ Cấu hình trong Settings → Agents. Mặc định:
 | OpenCode | `opencode acp` | `opencode auth` |
 
 Thử không cần tài khoản: thêm agent giả `node tools/mock-acp.mjs`.
-`BM_AGENT_STATE=<file>` chạy với file state khác (mặc định
-`%APPDATA%\bm-agent\state.json`).
+`BM_RELAY_STATE=<file>` chạy với file state khác (mặc định
+`%APPDATA%\bm-relay\state.json`).
 
 ## Tính năng
 
@@ -58,6 +58,11 @@ Thử không cần tài khoản: thêm agent giả `node tools/mock-acp.mjs`.
 - Chuyển nhánh git; bảng thay đổi (diff, stage, discard) và khôi phục file
   theo lượt
 - Command palette (Ctrl+K), chia đôi màn hình, lưu trữ và xóa session
+- Chuột phải session: mở thư mục dự án, hoặc mở Explorer tại file lịch sử
+  của session (Claude Code, Codex)
+- Lịch sử dài mở nhanh (chỉ vẽ phần đang hiện); cuộn lên thì có nút ↓ về
+  tin mới nhất
+- Crash thì báo lỗi và ghi `crash.log` cạnh file state, lần mở sau báo lại
 - Settings → Storage: dọn session cũ của Claude Code, Codex, OpenCode
 - Giao diện sáng/tối, màu nhấn, cỡ chữ; MCP server, skill, mức sử dụng
 

@@ -142,7 +142,7 @@ pub fn freeList(gpa: std.mem.Allocator, list: []const []const u8) void {
 
 fn scratchIndex(gpa: std.mem.Allocator, io: Io) ![]u8 {
     const now = std.Io.Clock.real.now(io).toMicroseconds();
-    return std.fmt.allocPrint(gpa, "{s}{c}bm-agent-index-{d}", .{ temp_dir, std.fs.path.sep, now });
+    return std.fmt.allocPrint(gpa, "{s}{c}bm-relay-index-{d}", .{ temp_dir, std.fs.path.sep, now });
 }
 
 fn aside(gpa: std.mem.Allocator, io: Io, cwd: []const u8, index: []const u8, args: []const []const u8) Out {

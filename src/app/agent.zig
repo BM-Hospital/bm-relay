@@ -18,7 +18,7 @@ const App = app_mod.App;
 const Session = state.Session;
 const Workspace = state.Workspace;
 
-pub const version = "0.1.0";
+pub const version = @import("app_options").version;
 
 pub const Open = union(enum) {
     new,
@@ -89,7 +89,7 @@ pub fn connect(a: *App, s: *Session, ws: *Workspace, open: Open) void {
         if (s.thread.turns.items.len > 0) s.replay = .init(a.gpa) else s.thread.reset();
     }
     const fs = .{ .readTextFile = false, .writeTextFile = false };
-    const info = .{ .name = "bm-agent", .title = "BM Coding Agent", .version = version };
+    const info = .{ .name = "bm-relay", .title = "BM Relay", .version = version };
     const cb: rpc.Callback = .{ .ctx = Op.make(a, s, open), .func = initialized };
     // Subagents shown: Codex's adapter then sends what they do, as sessions
     // of their own. Claude Code's would hide its Task calls in that form;

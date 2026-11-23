@@ -16,7 +16,7 @@ pub fn draw(a: *App, c: *ui.Context) void {
         @import("../../design/components.zig").logo(c, 56);
         const col = ui.div(c).column().gap(2);
         defer col.end();
-        ui.text(c, "BM Coding Agent", .{ .size = 22, .weight = .medium });
+        ui.text(c, "BM Relay", .{ .size = 22, .weight = .medium });
         ui.text(c, c.print("Version {s} · a desktop app for coding agents that speak ACP", .{agent.version}), .{ .size = 14, .color = t.gray_900 });
     }
     session(a, c);

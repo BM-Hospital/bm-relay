@@ -199,7 +199,7 @@ pub const App = struct {
     pub fn notify(a: *App, title: []const u8, body: []const u8) void {
         if (a.store.data.mute) return;
         if (a.window) |w| if (w.isFocused()) return;
-        a.app.notify(.{ .id = "bm-agent", .title = title, .body = body }) catch {};
+        a.app.notify(.{ .id = "bm-relay", .title = title, .body = body }) catch {};
     }
 
     pub fn toast(a: *App, title: []const u8) void {

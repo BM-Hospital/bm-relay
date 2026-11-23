@@ -81,7 +81,7 @@ pub fn sidebar(a: *App, c: *ui.Context) void {
         const top = ui.div(c).row().wFull().h(48).pl(8).pr(4).gap(8).itemsCenter();
         defer top.end();
         k.logo(c, 20);
-        ui.text(c, "BM Coding Agent", .{ .size = 14, .weight = .semibold });
+        ui.text(c, "BM Relay", .{ .size = 14, .weight = .semibold });
         ui.spacer(c);
         toggleSidebar(a, c);
     }
@@ -284,6 +284,14 @@ fn sessionItems(a: *App, s: *Session, m: *ui.MenuPanel) void {
         if (m.item("Copy session id", .{ .icon = "doc.on.doc" })) myzig.clipboard.writeText(id);
     }
     m.separator();
+    if (a.workspaceOf(s)) |w| {
+        if (m.item("Open project folder", .{ .icon = "folder" })) _ = myzig.shell.openPath(w.path);
+    }
+    // Claude Code and Codex keep each session in a file of its own.
+    if (s.id) |id| if (@import("../app/storage.zig").kindOf(a, s.agent)) |store| if (store != .opencode) {
+        if (m.item("Reveal history file", .{ .icon = "doc.text" })) revealHistory(a, s.agent, id);
+    };
+    m.separator();
     if (m.item("Archive", .{ .icon = "archive" })) {
         a.dialog = .{ .remove = s };
         a.dialog_state.show();
@@ -292,6 +300,15 @@ fn sessionItems(a: *App, s: *Session, m: *ui.MenuPanel) void {
         a.dialog = .{ .delete = s };
         a.dialog_state.show();
     }
+}
+
+/// File Explorer, the session's history file selected in its folder.
+fn revealHistory(a: *App, agent_id: []const u8, id: []const u8) void {
+    var arena: std.heap.ArenaAllocator = .init(a.gpa);
+    defer arena.deinit();
+    const file = @import("../app/storage.zig").historyFile(a, arena.allocator(), agent_id, id) orelse
+        return a.failToast("Its history file is not there: the agent may keep it elsewhere, or it was deleted.");
+    myzig.shell.showInFolder(file);
 }
 
 fn startRename(a: *App, s: *Session) void {

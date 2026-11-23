@@ -62,6 +62,8 @@ pub const Conn = struct {
         const c = try gpa.create(Conn);
         errdefer gpa.destroy(c);
         c.* = .{ .gpa = gpa, .io = io, .p = try proc.spawn(io, opts), .handler = handler };
+        _ = live.fetchAdd(1, .acq_rel);
+        errdefer _ = live.fetchSub(1, .acq_rel);
         const out = std.Thread.spawn(.{ .stack_size = 1 << 20 }, readLoop, .{c}) catch |e| {
             c.p.kill(io);
             c.p.stdout.close(io);
@@ -143,6 +145,7 @@ pub const Conn = struct {
         if (c.refs.fetchSub(1, .acq_rel) != 1) return;
         c.pending.deinit(c.gpa);
         c.gpa.destroy(c);
+        _ = live.fetchSub(1, .acq_rel);
     }
 
     /// One line from the agent, on the main thread.
@@ -222,6 +225,31 @@ const Line = struct {
 fn ended(ctx: ?*anyopaque) callconv(.c) void {
     const c: *Conn = @ptrCast(@alignCast(ctx.?));
     c.handleEnd();
+}
+
+/// Connections not freed yet: their agents' ends are still to come.
+var live: std.atomic.Value(u32) = .init(0);
+
+/// At quitting, once every agent was stopped: runs the main thread's queue
+/// until their connections are freed (their ends are handled there), or
+/// `ms` went by. Main thread only.
+pub fn settle(io: Io, ms: u32) void {
+    if (live.load(.acquire) == 0) return;
+    var done: std.atomic.Value(bool) = .init(false);
+    const W = struct {
+        fn wait(d: *std.atomic.Value(bool), wio: Io, limit: u32) void {
+            var waited: u32 = 0;
+            while (waited < limit and live.load(.acquire) > 0) : (waited += 10) wio.sleep(.fromMilliseconds(10), .awake) catch break;
+            if (!mainthread.post(d, set)) d.store(true, .release);
+        }
+        fn set(ctx: ?*anyopaque) callconv(.c) void {
+            const d: *std.atomic.Value(bool) = @ptrCast(@alignCast(ctx.?));
+            d.store(true, .release);
+        }
+    };
+    const t = std.Thread.spawn(.{}, W.wait, .{ &done, io, ms }) catch return;
+    mainthread.runUntil(&done);
+    t.join();
 }
 
 fn readLoop(c: *Conn) void {

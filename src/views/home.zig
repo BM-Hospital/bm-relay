@@ -330,7 +330,7 @@ fn approvalCard(a: *App, c: *ui.Context, w: *Workspace, s: *Session, p: *state.P
 // The first run: no folder yet.
 
 fn firstRun(a: *App, c: *ui.Context) void {
-    hero(c, "Welcome to BM Coding Agent");
+    hero(c, "Welcome to BM Relay");
     ui.text(c, "A desktop app for coding agents that speak ACP: Claude Code, Codex, Gemini CLI, OpenCode, pi and fx.", .{ .size = 13, .color = t.gray_900 });
     const card = ui.div(c).column().wFull().maxW(520).rounded(14).bg(t.gray_100).border(t.alpha_300);
     defer card.end();

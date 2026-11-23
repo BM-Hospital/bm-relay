@@ -56,6 +56,23 @@ pub fn remove(a: std.mem.Allocator, io: Io, base: []const u8, id: []const u8) u6
     return freed;
 }
 
+/// Where session `id`'s transcript is: `projects/<folder>/<id>.jsonl`.
+pub fn transcriptPath(a: std.mem.Allocator, io: Io, base: []const u8, id: []const u8) ?[]const u8 {
+    if (!isUuid(id)) return null;
+    const cwd = Io.Dir.cwd();
+    const projects = std.fs.path.join(a, &.{ base, "projects" }) catch return null;
+    var dir = cwd.openDir(io, projects, .{ .iterate = true }) catch return null;
+    defer dir.close(io);
+    var it = dir.iterate();
+    while (it.next(io) catch null) |e| {
+        if (e.kind != .directory) continue;
+        const name = std.fmt.allocPrint(a, "{s}.jsonl", .{id}) catch return null;
+        const p = std.fs.path.join(a, &.{ projects, e.name, name }) catch return null;
+        if (cwd.statFile(io, p, .{})) |_| return p else |_| {}
+    }
+    return null;
+}
+
 /// The bytes a file, or a folder and all in it, takes; 0 when it is not there.
 pub fn sizeOf(a: std.mem.Allocator, io: Io, path: []const u8) u64 {
     const cwd = Io.Dir.cwd();

@@ -434,17 +434,10 @@ pub const Thread = struct {
         return null;
     }
 
-    fn userText(th: *Thread, text: []const u8, now: i64) void {
-        if (std.mem.indexOf(u8, text, "[Image #") != null) {
-            var kept: std.ArrayList(u8) = .empty;
-            var lines = std.mem.splitScalar(u8, text, '\n');
-            while (lines.next()) |l| {
-                if (isImageMark(l)) continue;
-                if (kept.items.len > 0) kept.append(th.a(), '\n') catch {};
-                kept.appendSlice(th.a(), l) catch {};
-            }
-            return th.userText(kept.items, now);
-        }
+    fn userText(th: *Thread, text_in: []const u8, now: i64) void {
+        // The images show as themselves: their marks ("[Image #1]", where
+        // they were pasted, on a line of their own or among the words) go.
+        const text = withoutImageMarks(th.a(), text_in);
         if (th.last()) |t| if (t.items.items.len == 0 and t.ended == null) {
             if (t.timed and t.prompt.items.len > 0) t.prompt.appendSlice(th.a(), "\n\n") catch {};
             t.prompt.appendSlice(th.a(), text) catch {};
@@ -484,13 +477,56 @@ pub const Thread = struct {
     }
 };
 
-fn isImageMark(line: []const u8) bool {
-    const t = std.mem.trim(u8, line, " \r\t");
-    if (!std.mem.startsWith(u8, t, "[Image #") or !std.mem.endsWith(u8, t, "]")) return false;
-    const n = t[8 .. t.len - 1];
-    if (n.len == 0) return false;
-    for (n) |b| if (!std.ascii.isDigit(b)) return false;
-    return true;
+/// How long the image mark at the start of `s` is ("[Image #12]"), with
+/// one space after it; 0 when `s` doesn't start with one.
+fn imageMark(s: []const u8) usize {
+    const head = "[Image #";
+    if (!std.mem.startsWith(u8, s, head)) return 0;
+    var i = head.len;
+    while (i < s.len and std.ascii.isDigit(s[i])) i += 1;
+    if (i == head.len or i >= s.len or s[i] != ']') return 0;
+    i += 1;
+    if (i < s.len and s[i] == ' ') i += 1;
+    return i;
+}
+
+/// `text` without its image marks, and without the lines they leave empty;
+/// `text` itself when it has none.
+fn withoutImageMarks(a: std.mem.Allocator, text: []const u8) []const u8 {
+    if (std.mem.indexOf(u8, text, "[Image #") == null) return text;
+    var out: std.ArrayList(u8) = .empty;
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |line| {
+        var kept: std.ArrayList(u8) = .empty;
+        var i: usize = 0;
+        while (i < line.len) {
+            const n = imageMark(line[i..]);
+            if (n > 0) {
+                i += n;
+            } else {
+                kept.append(a, line[i]) catch return text;
+                i += 1;
+            }
+        }
+        const l = std.mem.trimEnd(u8, kept.items, " \r\t");
+        // A line that held only marks goes; an empty one of the user's stays.
+        if (l.len == 0 and line.len > 0) continue;
+        if (out.items.len > 0) out.append(a, '\n') catch return text;
+        out.appendSlice(a, l) catch return text;
+    }
+    return out.items;
+}
+
+test "image marks go, wherever they are, and the words stay" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // This one, among the words, recursed until the stack ran out.
+    try testing.expectEqualStrings("update logo then do it", withoutImageMarks(a, "[Image #1] update logo then do it"));
+    try testing.expectEqualStrings("match this", withoutImageMarks(a, "match this\n[Image #1]"));
+    try testing.expectEqualStrings("a and b", withoutImageMarks(a, "a [Image #2] and b[Image #3]"));
+    try testing.expectEqualStrings("see [Image #x] here", withoutImageMarks(a, "see [Image #x] here"));
+    try testing.expectEqualStrings("no marks", withoutImageMarks(a, "no marks"));
 }
 
 /// "1m 12s", "4s".

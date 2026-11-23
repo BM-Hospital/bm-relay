@@ -1,4 +1,4 @@
-//! BM Coding Agent: a desktop app for coding agents that speak ACP (Claude Code,
+//! BM Relay: a desktop app for coding agents that speak ACP (Claude Code,
 //! Codex, Gemini CLI, fx), drawn by myzig. A port of fx-ui.
 //!
 //!     zig build run                       open the app
@@ -14,6 +14,16 @@ const tokens = @import("design/tokens.zig");
 const root = @import("views/root.zig");
 
 const App = app_mod.App;
+const crash = @import("host/crash.zig");
+
+/// A panic, a bad memory access, the stack running out: said and logged
+/// (`host/crash.zig`) rather than the window just vanishing.
+pub const panic = std.debug.FullPanic(crash.panicked);
+pub const debug = struct {
+    pub fn handleSegfault(addr: ?usize, name: []const u8, ctx: anytype) noreturn {
+        crash.faulted(addr, name, ctx);
+    }
+};
 
 fn closed(ctx: *anyopaque, _: *myzig.Window) void {
     const a: *App = @ptrCast(@alignCast(ctx));
@@ -38,16 +48,18 @@ pub fn main(init: std.process.Init) !void {
         } else if (!std.mem.startsWith(u8, arg, "--myzig")) folder = arg;
     }
 
-    const app = try myzig.App.create(init, .{ .name = "BM Coding Agent", .id = "me.hunghg.bm-agent" });
+    const app = try myzig.App.create(init, .{ .name = "BM Relay", .id = "me.hunghg.bm-relay" });
     defer app.destroy();
     git.init(gpa, init.environ_map);
     defer git.deinit();
 
-    const data_dir = myzig.appPath(gpa, .data, "bm-agent") catch null;
+    const data_dir = myzig.appPath(gpa, .data, "bm-relay") catch null;
     defer if (data_dir) |d| gpa.free(d);
-    // BM_AGENT_STATE names another state file: for trying the app, and tests.
-    const store_path = if (init.environ_map.get("BM_AGENT_STATE")) |p| try gpa.dupe(u8, p) else if (data_dir) |d| try std.fs.path.join(gpa, &.{ d, "state.json" }) else null;
+    if (data_dir) |d| moveOldData(gpa, init.io, d);
+    // BM_RELAY_STATE names another state file: for trying the app, and tests.
+    const store_path = if (init.environ_map.get("BM_RELAY_STATE")) |p| try gpa.dupe(u8, p) else if (data_dir) |d| try std.fs.path.join(gpa, &.{ d, "state.json" }) else null;
     defer if (store_path) |p| gpa.free(p);
+    if (store_path) |p| crash.init(std.fs.path.dirname(p) orelse ".", agent.version);
     const home = init.environ_map.get("USERPROFILE") orelse init.environ_map.get("HOME") orelse "";
 
     var a: App = .{
@@ -66,6 +78,16 @@ pub fn main(init: std.process.Init) !void {
     // The colors before the window opens: its first frame is in them.
     @import("app/appearance.zig").start(&a);
     sessions.loadAll(&a);
+    // The last run crashed: said once, until closed.
+    if (crash.takeLast(gpa, init.io)) |text| {
+        defer gpa.free(text);
+        var lines = std.mem.splitScalar(u8, text, '\n');
+        _ = lines.next();
+        const what = std.mem.trim(u8, lines.next() orelse "", " \r");
+        var buf: [600]u8 = undefined;
+        const about = std.fmt.bufPrint(&buf, "{s}{s}Details: {s}.shown", .{ what[0..@min(what.len, 300)], if (what.len > 0) ". " else "", crash.path() }) catch "";
+        _ = a.toasts.add(.{ .title = "BM Relay closed unexpectedly last time", .description = about, .kind = .@"error", .timeout = -1 });
+    }
     if (prompt) |p| a.first_prompt = try gpa.dupe(u8, p);
     if (folder) |f| {
         var buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -76,7 +98,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     a.window = try app.newWindow(.{
-        .title = "BM Coding Agent",
+        .title = "BM Relay",
         .width = 1280,
         .height = 820,
         .min_width = 860,
@@ -90,10 +112,28 @@ pub fn main(init: std.process.Init) !void {
     if (a.window) |w| myzig.systemDrop(w, &a.dnd, &.{}) catch |e| std.log.warn("drops: {s}", .{@errorName(e)});
     app.run() catch |e| std.log.err("run: {s}", .{@errorName(e)});
     agent.stopAll(&a);
+    // The agents' connections are freed as their ends come in.
+    @import("acp/rpc.zig").settle(init.io, 1000);
     a.window = null;
     // Git still reading a folder uses the app's memory: let it finish.
     @import("host/jobs.zig").drain(init.io, 5);
     @import("host/npx.zig").deinit(gpa);
+}
+
+/// The app was called BM Coding Agent and kept its data in `bm-agent`:
+/// that folder becomes `dir` while `dir` has no state yet, so nothing is left
+/// behind. `dir` may be there already, empty.
+fn moveOldData(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) void {
+    const cwd = std.Io.Dir.cwd();
+    const state = std.fs.path.join(gpa, &.{ dir, "state.json" }) catch return;
+    defer gpa.free(state);
+    if (cwd.access(io, state, .{})) |_| return else |_| {}
+    const parent = std.fs.path.dirname(dir) orelse return;
+    const old = std.fs.path.join(gpa, &.{ parent, "bm-agent" }) catch return;
+    defer gpa.free(old);
+    cwd.access(io, old, .{}) catch return;
+    cwd.deleteDir(io, dir) catch {};
+    cwd.rename(old, cwd, dir, io) catch {};
 }
 
 /// Files let go on the window where nothing takes them: a folder opens
@@ -118,6 +158,7 @@ test {
     _ = @import("host/pickers.zig");
     _ = @import("host/npx.zig");
     _ = @import("host/claude_files.zig");
+    _ = @import("host/crash.zig");
     _ = @import("host/agent_stores.zig");
     _ = @import("app/state.zig");
     _ = @import("app/format.zig");
@@ -137,5 +178,7 @@ test {
     _ = @import("views/composer_menus.zig");
     _ = @import("views/timeline_test.zig");
     _ = @import("views/composer_test.zig");
+    _ = @import("views/thread_test.zig");
+    _ = @import("views/markdown_test.zig");
     _ = @import("views/branches.zig");
 }

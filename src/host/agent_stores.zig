@@ -21,6 +21,26 @@ pub fn root(a: std.mem.Allocator, env: *const std.process.Environ.Map, kind: Kin
     };
 }
 
+/// Where Codex keeps session `id`'s transcript: a `rollout-…-<id>.jsonl`
+/// (or `.jsonl.zst`, archived) under `sessions/` or `archived_sessions/`.
+pub fn codexRollout(a: std.mem.Allocator, io: Io, base: []const u8, id: []const u8) ?[]const u8 {
+    if (id.len < 8) return null;
+    const cwd = Io.Dir.cwd();
+    for ([_][]const u8{ "sessions", "archived_sessions" }) |sub| {
+        const root_dir = std.fs.path.join(a, &.{ base, sub }) catch continue;
+        var dir = cwd.openDir(io, root_dir, .{ .iterate = true }) catch continue;
+        defer dir.close(io);
+        var w = dir.walk(a) catch continue;
+        defer w.deinit();
+        while (w.next(io) catch null) |e| {
+            if (e.kind != .file or !std.mem.startsWith(u8, e.basename, "rollout-")) continue;
+            const stem = if (std.mem.endsWith(u8, e.basename, ".jsonl")) e.basename[0 .. e.basename.len - 6] else if (std.mem.endsWith(u8, e.basename, ".jsonl.zst")) e.basename[0 .. e.basename.len - 10] else continue;
+            if (std.mem.endsWith(u8, stem, id)) return std.fs.path.join(a, &.{ root_dir, e.path }) catch null;
+        }
+    }
+    return null;
+}
+
 /// The names in a store that are its sessions: their transcripts, their
 /// databases (and journals), their snapshots.
 fn isSessions(kind: Kind, name: []const u8) bool {
@@ -44,6 +64,22 @@ pub fn weigh(a: std.mem.Allocator, io: Io, base: []const u8, kind: Kind) Weight 
         w.sessions += claude_files.sizeOf(a, io, p);
     }
     return w;
+}
+
+test "a Codex session's rollout, found by its id" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const id = "01a1cd5d-98e5-7410-8c69-0306496194ed";
+    try tmp.dir.createDirPath(io, "sessions/2026/11/12");
+    try tmp.dir.writeFile(io, .{ .sub_path = "sessions/2026/11/12/rollout-2026-11-12T08-27-05-" ++ id ++ ".jsonl", .data = "{}" });
+    const base = try tmp.dir.realPathFileAlloc(io, ".", a);
+    const p = codexRollout(a, io, base, id).?;
+    try std.testing.expect(std.mem.endsWith(u8, p, id ++ ".jsonl"));
+    try std.testing.expect(codexRollout(a, io, base, "01a1cd5d-0000-0000-0000-000000000000") == null);
 }
 
 test "a store weighed: its sessions, of all it holds" {

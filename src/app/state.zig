@@ -121,6 +121,10 @@ pub const Session = struct {
     skipped: ?usize = null,
     grants: std.ArrayList([]u8) = .empty,
     snap: ?Snap = null,
+    /// Its turns as a virtual list (`ui.measuredList`): only those in view
+    /// are built, however long it is. Beside: as the dimmed one shown there.
+    rows: ui.MeasuredListState = .{},
+    rows_beside: ui.MeasuredListState = .{},
 
     pub fn create(gpa: std.mem.Allocator, key: u64, agent: []const u8) *Session {
         const s = gpa.create(Session) catch @panic("out of memory");
@@ -146,6 +150,9 @@ pub const Session = struct {
         s.replay = null;
         s.thread.deinit();
         s.thread = r;
+        // Other turns: their heights are measured anew.
+        s.rows.reset();
+        s.rows_beside.reset();
     }
 
     pub fn dropReplay(s: *Session) void {
@@ -166,6 +173,8 @@ pub const Session = struct {
         s.caps_arena.deinit();
         s.expanded.deinit(gpa);
         s.open_steps.deinit(gpa);
+        s.rows.deinit(gpa);
+        s.rows_beside.deinit(gpa);
         if (s.err) |e| gpa.free(e);
         s.clearTally();
         for (s.steering.items) |x| gpa.free(x);

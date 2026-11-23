@@ -1,7 +1,7 @@
 .{
-    .name = .bm_coding_agent,
+    .name = .bm_relay,
     .version = "0.1.2",
-    .fingerprint = 0xa9bb4101d035832,
+    .fingerprint = 0x7b4dfa0c83becd84,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .myzig = .{ .path = "../../projects/myzig" },

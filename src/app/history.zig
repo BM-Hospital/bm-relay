@@ -130,7 +130,7 @@ fn start(a: *App, w: *Workspace) void {
     conn.request("initialize", .{
         .protocolVersion = 1,
         .clientCapabilities = .{ .fs = .{ .readTextFile = false, .writeTextFile = false }, .terminal = false },
-        .clientInfo = .{ .name = "bm-agent", .title = "BM Coding Agent", .version = agent.version },
+        .clientInfo = .{ .name = "bm-relay", .title = "BM Relay", .version = agent.version },
     }, .{ .ctx = a, .func = initialized });
     a.redraw();
 }

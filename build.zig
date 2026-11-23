@@ -20,8 +20,12 @@ pub fn build(b: *std.Build) void {
         },
     });
     if (win32_res) |res| if (target.result.os.tag == .windows) root.addObjectFile(.{ .cwd_relative = res });
+    // The version, from build.zig.zon: About and crash reports say it.
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", @import("build.zig.zon").version);
+    root.addOptions("app_options", options);
 
-    const exe = b.addExecutable(.{ .name = "bm-agent", .root_module = root });
+    const exe = b.addExecutable(.{ .name = "bm-relay", .root_module = root });
     if (b.option(bool, "windows-gui", "A Windows app without a console") orelse false) exe.subsystem = .windows;
     b.installArtifact(exe);
 

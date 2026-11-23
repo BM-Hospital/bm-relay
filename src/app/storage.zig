@@ -137,6 +137,25 @@ pub fn agentFor(a: *App, kind: Kind) ?[]const u8 {
     return null;
 }
 
+/// Which of the stores agent `agent_id` keeps its sessions in, if any.
+pub fn kindOf(a: *App, agent_id: []const u8) ?Kind {
+    for ([_]Kind{ .claude, .codex, .opencode }) |k| {
+        if (agentFor(a, k)) |id| if (std.mem.eql(u8, id, agent_id)) return k;
+    }
+    return null;
+}
+
+/// The file session `s` is kept in by its agent (Claude Code's transcript,
+/// Codex's rollout), in `a`'s memory; null for other agents, or when it is
+/// not there.
+pub fn historyFile(app: *App, ar: std.mem.Allocator, agent_id: []const u8, id: []const u8) ?[]const u8 {
+    return switch (kindOf(app, agent_id) orelse return null) {
+        .claude => claude_files.transcriptPath(ar, app.io, claude_files.root(ar, app.env) orelse return null, id),
+        .codex => agent_stores.codexRollout(ar, app.io, agent_stores.root(ar, app.env, .codex) orelse return null, id),
+        .opencode => null,
+    };
+}
+
 /// Shows `kind`'s store instead.
 pub fn choose(a: *App, kind: Kind) void {
     const st = &a.storage;
@@ -257,7 +276,7 @@ fn start(a: *App) void {
     conn.request("initialize", .{
         .protocolVersion = 1,
         .clientCapabilities = .{ .fs = .{ .readTextFile = false, .writeTextFile = false }, .terminal = false },
-        .clientInfo = .{ .name = "bm-agent", .title = "BM Coding Agent", .version = agent.version },
+        .clientInfo = .{ .name = "bm-relay", .title = "BM Relay", .version = agent.version },
     }, .{ .ctx = a, .func = initialized });
 }
 

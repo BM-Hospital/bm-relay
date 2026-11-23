@@ -26,32 +26,74 @@ const Turn = transcript.Turn;
 
 pub fn draw(a: *App, c: *ui.Context, s: *Session) void {
     c.keyed(.{ @as(u8, 't'), s.key });
-    const scroll = ui.div(c).column().wFull().grow().scrollY();
-    // Scrolled from here (a prompt sent): to the end.
+    const box = ui.div(c).column().wFull().grow().h(0);
+    defer box.end();
+    // Scrolled from here (a prompt sent): to the end, following it again.
     if (a.to_end) {
-        c.scroll.put(c.gpa, c.node(scroll.index).id, 1e9) catch {};
+        const id = c.peekId(null);
+        c.scroll_follow.put(c.gpa, id, true) catch {};
+        _ = c.scroll_seen.remove(id);
         a.to_end = false;
     }
-    c.node(scroll.index).style.follow_end = true;
-    defer scroll.end();
-    const outer = ui.div(c).column().wFull().px(40).pt(24).pb(24).itemsCenter();
-    defer outer.end();
-    const col = ui.div(c).column().wFull().maxW(t.column).gap(20);
-    defer col.end();
-    column(a, c, s, false);
+    const list_id = c.peekId(null);
+    turnList(a, c, s, &s.rows, false, 40);
+    toEndButton(a, c, box, list_id);
 }
 
-fn column(a: *App, c: *ui.Context, s: *Session, dimmed: bool) void {
-    const items = s.thread.turns.items;
-    if (items.len == 0) {
-        if (s.opening) loading(c, "Opening the session…") else if (!s.loaded) loading(c, "Loading…");
+/// Scrolled up from the end, past a screen: a round arrow at the bottom
+/// takes the reader back to the newest message, and to following it.
+fn toEndButton(a: *App, c: *ui.Context, box: ui.Div, list_id: u64) void {
+    const rect = c.rects.get(c.node(box.index).id) orelse return;
+    const offset = c.scroll.get(list_id) orelse return;
+    const limit = c.scroll_limit.get(list_id) orelse return;
+    if (limit - offset < @max(240, rect.h * 0.6)) return;
+    const b = ui.div(c).absolute().offset(rect.w / 2 - 18, rect.h - 52).w(36).h(36).center().rounded(18).bg(t.gray_100).border(t.alpha_400).shadow(t.shadow_pop).hover(t.gray_200).control();
+    comp.icon(c, "arrow-down", .{ .size = 16, .color = t.gray_1000 });
+    b.end();
+    if (b.interaction().hovered) c.cursor = .hand;
+    if (comp.press(b)) {
+        a.to_end = true;
+        a.redraw();
     }
+}
+
+/// The turns as a virtual list, the cards after them as its last row: only
+/// what is in view is built, so a session of thousands of turns draws as
+/// fast as a short one. It follows its end as turns come, until scrolled.
+fn turnList(a: *App, c: *ui.Context, s: *Session, rows_state: *ui.MeasuredListState, dimmed: bool, side: f32) void {
+    const items = s.thread.turns.items;
+    var rows = ui.measuredList(c, rows_state, .{
+        .count = items.len + 1,
+        .estimate = 320,
+        .gap = 20,
+        .padding = .{ .top = 24, .bottom = 24, .left = side, .right = side },
+        .follow_end = true,
+    });
     const ws = a.workspaceOf(s);
-    for (items, 0..) |turn, i| {
+    while (rows.next()) |i| {
+        const center = ui.div(c).column().wFull().itemsCenter();
+        defer center.end();
+        const col = ui.div(c).column().wFull().maxW(t.column).gap(20);
+        defer col.end();
+        if (i == items.len) {
+            tail(a, c, s, dimmed);
+            continue;
+        }
+        const turn = items[i];
         c.keyed(turn);
         const last = i + 1 == items.len;
         const files = if (last and !dimmed and ws != null) tools.touched(c.alloc(), turn, ws.?.path, ws.?.status) else &[_]git.Change{};
         drawTurn(a, c, s, i, turn, files);
+    }
+    rows.end();
+}
+
+/// What comes after the turns: loading, the approval and question cards,
+/// the error, the restore row.
+fn tail(a: *App, c: *ui.Context, s: *Session, dimmed: bool) void {
+    const items = s.thread.turns.items;
+    if (items.len == 0) {
+        if (s.opening) loading(c, "Opening the session…") else if (!s.loaded) loading(c, "Loading…");
     }
     if (dimmed) {
         if (s.permission != null) ui.text(c, "Waiting on your answer. Click to work in this one.", .{ .size = 13, .color = t.amber_700 });
@@ -327,15 +369,8 @@ pub fn beside(a: *App, c: *ui.Context, s: *Session) void {
         if (comp.iconButton(c, "x", 14, "Close")) sessions.closeBeside(a);
     }
     c.keyed(.{ @as(u8, 'b'), s.key });
-    const scroll = ui.div(c).column().wFull().grow().scrollY().opacity(0.6);
-    c.node(scroll.index).style.follow_end = true;
-    {
-        const outer = ui.div(c).column().wFull().px(24).pt(24).pb(24).itemsCenter();
-        defer outer.end();
-        const inner = ui.div(c).column().wFull().maxW(t.column).gap(20);
-        defer inner.end();
-        column(a, c, s, true);
-    }
+    const scroll = ui.div(c).column().wFull().grow().h(0).opacity(0.6).control();
+    turnList(a, c, s, &s.rows_beside, true, 24);
     scroll.end();
     const it = scroll.interaction();
     if (it.hovered) c.cursor = .hand;

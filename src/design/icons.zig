@@ -28,6 +28,7 @@ pub const all = [_]Icon{
     .{ .name = "chevron-right", .svg = lucide.svg("chevron-right") },
     .{ .name = "branch", .svg = lucide.svg("git-branch") },
     .{ .name = "arrow-up", .svg = lucide.svg("arrow-up") },
+    .{ .name = "arrow-down", .svg = lucide.svg("arrow-down") },
     .{ .name = "check", .svg = lucide.svg("check") },
     .{ .name = "x", .svg = lucide.svg("x") },
     .{ .name = "file", .svg = lucide.svg("file") },
