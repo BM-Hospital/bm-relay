@@ -42,14 +42,21 @@ pub fn start(a: *App) void {
         .light => .light,
         .dark => .dark,
     });
-    t.use(a.app.dark, accent(a));
+    t.use(dark(a), accent(a));
 }
 
 /// The frame's colors and text size, as set.
 pub fn apply(a: *App, c: *ui.Context) void {
-    t.use(a.app.dark, accent(a));
+    t.use(dark(a), accent(a));
     ui.themes.apply(c, t.theme());
     c.setZoom(a.store.data.text_size);
+}
+
+/// Whether the app shows dark: Windows' App keeps it (read when the system
+/// changes), other platforms ask the desktop.
+fn dark(a: *const App) bool {
+    if (@import("builtin").target.os.tag == .windows) return a.app.dark;
+    return myzig.isDark();
 }
 
 pub fn setTheme(a: *App, x: Theme) void {
