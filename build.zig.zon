@@ -1,0 +1,14 @@
+.{
+    .name = .bm_coding_agent,
+    .version = "0.1.0",
+    .fingerprint = 0xa9bb4101d035832,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .myzig = .{ .path = "../../projects/myzig" },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

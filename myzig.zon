@@ -1,0 +1,8 @@
+// The app, for the myzig CLI: `myzig dev`, `myzig build`.
+.{
+    .name = "BM Coding Agent",
+    .identifier = "me.hunghg.bm-agent",
+    .executable = "bm-agent",
+    .version = "0.1.0",
+    .icon = "resources/icon.png",
+}
