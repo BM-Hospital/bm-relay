@@ -46,6 +46,7 @@ pub const all = [_]Icon{
     .{ .name = "square", .svg = lucide.svg("square") },
     .{ .name = "storage", .svg = lucide.svg("hard-drive") },
     .{ .name = "clock", .svg = lucide.svg("clock") },
+    .{ .name = "paperclip", .svg = lucide.svg("paperclip") },
     .{ .name = "rectangle.on.rectangle", .svg = lucide.svg("columns-2") },
     .{ .name = "spin-track", .svg = doc("2", "<circle cx=\"8\" cy=\"8\" r=\"6\"/>") },
     .{ .name = "spin-arc", .svg = doc("2", "<path d=\"M8 2a6 6 0 0 1 6 6\" stroke-linecap=\"round\"/>") },

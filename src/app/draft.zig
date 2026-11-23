@@ -1,5 +1,6 @@
-//! The composer's draft: images attached to it, and the `@` and `/`
-//! pickers that complete files, skills and the agent's own commands.
+//! The composer's draft: images and files attached to it (chosen, pasted
+//! or dropped), and the `@` and `/` pickers that complete files, skills
+//! and the agent's own commands.
 const std = @import("std");
 const myzig = @import("myzig");
 const app_mod = @import("app.zig");
@@ -25,8 +26,16 @@ pub fn clear(a: *App) void {
     a.picker = null;
 }
 
+fn count(a: *App, files: bool) usize {
+    var n: usize = 0;
+    for (a.attachments.items) |at| {
+        if (at.isFile() == files) n += 1;
+    }
+    return n;
+}
+
 pub fn attachImage(a: *App, mime: []const u8, bytes: []const u8, name: []const u8) bool {
-    if (a.attachments.items.len >= state.max_images) {
+    if (count(a, false) >= state.max_images) {
         refuse(a, a.print("A prompt carries at most {d} images.", .{state.max_images}));
         return false;
     }
@@ -59,6 +68,19 @@ pub fn pasteImage(a: *App) bool {
     return attachImage(a, "image/png", png, "Pasted image");
 }
 
+/// The files on the clipboard (copied in Explorer or Finder), attached:
+/// true when there were some.
+pub fn pasteFiles(a: *App) bool {
+    const paths = (myzig.clipboard.readFiles(a.gpa) catch null) orelse return false;
+    defer {
+        for (paths) |p| a.gpa.free(p);
+        a.gpa.free(paths);
+    }
+    if (paths.len == 0) return false;
+    _ = attachFiles(a, paths);
+    return true;
+}
+
 pub fn mimeOf(path: []const u8) ?[]const u8 {
     const ext = std.fs.path.extension(path);
     if (std.ascii.eqlIgnoreCase(ext, ".png")) return "image/png";
@@ -68,21 +90,86 @@ pub fn mimeOf(path: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Attaches image files by path; others are skipped.
-pub fn attachFiles(a: *App, paths: []const []const u8) void {
-    for (paths) |p| {
-        const mime = mimeOf(p) orelse continue;
-        const bytes = std.Io.Dir.cwd().readFileAlloc(a.io, p, a.gpa, .limited(16 << 20)) catch continue;
-        defer a.gpa.free(bytes);
-        if (!attachImage(a, mime, bytes, std.fs.path.basename(p))) break;
+/// Attaches the file at `path` for the agent to read: a link to it, not
+/// its bytes. False when no more can go.
+pub fn attachFile(a: *App, path: []const u8, size: u64) bool {
+    for (a.attachments.items) |at| if (std.mem.eql(u8, at.path, path)) return true;
+    if (count(a, true) >= state.max_files) {
+        refuse(a, a.print("A prompt carries at most {d} files.", .{state.max_files}));
+        return false;
     }
+    const name = a.gpa.dupe(u8, std.fs.path.basename(path)) catch return false;
+    const owned = a.gpa.dupe(u8, path) catch {
+        a.gpa.free(name);
+        return false;
+    };
+    a.attachments.append(a.gpa, .{ .mime = "", .bytes = &.{}, .name = name, .path = owned, .size = size }) catch {
+        a.gpa.free(name);
+        a.gpa.free(owned);
+        return false;
+    };
+    a.redraw();
+    return true;
 }
 
-/// Asks for images and attaches them.
-pub fn chooseImages(a: *App) void {
-    const paths = (myzig.dialog.open(a.gpa, .{ .title = "Attach images", .button = "Attach", .multiple = true, .extensions = &.{ "png", "jpg", "jpeg", "gif", "webp" } }) catch null) orelse return;
+/// Attaches files by path, chosen or dropped: an image as itself (the
+/// agent sees it), another file as a link the agent reads. Folders are
+/// left out; how many went is the result.
+pub fn attachFiles(a: *App, paths: []const []const u8) usize {
+    var n: usize = 0;
+    var folders: usize = 0;
+    for (paths) |p| {
+        const st = std.Io.Dir.cwd().statFile(a.io, p, .{}) catch continue;
+        if (st.kind == .directory) {
+            folders += 1;
+            continue;
+        }
+        if (mimeOf(p)) |mime| if (st.size <= state.max_image_bytes) {
+            const bytes = std.Io.Dir.cwd().readFileAlloc(a.io, p, a.gpa, .limited(state.max_image_bytes + 1)) catch continue;
+            defer a.gpa.free(bytes);
+            if (!attachImage(a, mime, bytes, std.fs.path.basename(p))) break;
+            n += 1;
+            continue;
+        };
+        if (!attachFile(a, p, st.size)) break;
+        n += 1;
+    }
+    if (folders > 0 and n == 0) refuse(a, "Folders are not attached: mention one with @, or open it from Add folder.");
+    return n;
+}
+
+/// Asks for files, any and several, and attaches them.
+pub fn chooseFiles(a: *App) void {
+    const paths = (myzig.dialog.open(a.gpa, .{ .title = "Attach files", .button = "Attach", .multiple = true }) catch null) orelse return;
     defer myzig.dialog.freePaths(a.gpa, paths);
-    attachFiles(a, paths);
+    _ = attachFiles(a, paths);
+}
+
+/// A file's path as a `file://` URI: forward slashes, a drive letter
+/// after a third slash, and what a URI can't hold escaped.
+pub fn fileUri(ar: std.mem.Allocator, path: []const u8) []const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    out.appendSlice(ar, "file://") catch return "";
+    if (path.len > 0 and path[0] != '/' and path[0] != '\\') out.append(ar, '/') catch {};
+    for (path) |ch| {
+        const keep = std.ascii.isAlphanumeric(ch) or std.mem.indexOfScalar(u8, "-._~/:", ch) != null;
+        if (ch == '\\') {
+            out.append(ar, '/') catch {};
+        } else if (keep) {
+            out.append(ar, ch) catch {};
+        } else {
+            out.print(ar, "%{X:0>2}", .{ch}) catch {};
+        }
+    }
+    return out.items;
+}
+
+test "a path as a file URI" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const ar = arena.allocator();
+    try std.testing.expectEqualStrings("file:///D:/BM/my%20notes/a.txt", fileUri(ar, "D:\\BM\\my notes\\a.txt"));
+    try std.testing.expectEqualStrings("file:///home/x/%C3%A9.md", fileUri(ar, "/home/x/\xc3\xa9.md"));
 }
 
 // ---------------------------------------------------------------------------

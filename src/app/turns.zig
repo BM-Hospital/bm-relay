@@ -12,6 +12,7 @@ const sessions = @import("sessions.zig");
 
 const App = app_mod.App;
 const Session = state.Session;
+const draft = @import("draft.zig");
 
 /// Sends the composer's text and attachments: a new turn, or while one
 /// runs, steering (fx) or the queue. False when nothing could take it.
@@ -133,6 +134,15 @@ pub fn resend(a: *App, s: *Session, index: usize, text: ?[]const u8) bool {
         };
         images.append(a.gpa, .{ .mime = img.mime, .bytes = bytes, .name = name }) catch {};
     }
+    // Its files: linked again, as they are now (a replayed one's URI too).
+    for (turn.files.items) |f| {
+        const name = a.gpa.dupe(u8, f.name) catch continue;
+        const path = a.gpa.dupe(u8, f.path) catch {
+            a.gpa.free(name);
+            continue;
+        };
+        images.append(a.gpa, .{ .mime = "", .bytes = &.{}, .name = name, .path = path }) catch {};
+    }
     const words = a.gpa.dupe(u8, text orelse turn.prompt.items) catch return false;
     defer a.gpa.free(words);
     const owned = images.toOwnedSlice(a.gpa) catch return false;
@@ -189,6 +199,17 @@ fn startTurn(a: *App, s: *Session, text: []const u8, images: []state.Attachment)
     }
     for (images) |img| {
         var o: std.json.ObjectMap = .empty;
+        if (img.isFile()) {
+            // A link the agent reads (ACP's `resource_link`, which every
+            // agent takes), not the file's bytes.
+            const uri = if (std.mem.startsWith(u8, img.path, "file:")) img.path else draft.fileUri(ar, img.path);
+            o.put(ar, "type", .{ .string = "resource_link" }) catch {};
+            o.put(ar, "uri", .{ .string = uri }) catch {};
+            o.put(ar, "name", .{ .string = img.name }) catch {};
+            if (img.size > 0) o.put(ar, "size", .{ .integer = @intCast(img.size) }) catch {};
+            blocks.append(.{ .object = o }) catch {};
+            continue;
+        }
         const enc = std.base64.standard.Encoder;
         const data = ar.alloc(u8, enc.calcSize(img.bytes.len)) catch continue;
         _ = enc.encode(data, img.bytes);
@@ -199,7 +220,9 @@ fn startTurn(a: *App, s: *Session, text: []const u8, images: []state.Attachment)
     }
 
     const turn = s.thread.begin(text, a.now());
-    for (images) |img| s.thread.keepImage(turn, img.mime, img.bytes);
+    for (images) |img| {
+        if (img.isFile()) s.thread.keepFile(turn, img.name, img.path) else s.thread.keepImage(turn, img.mime, img.bytes);
+    }
     snapshot(a, s, false);
     if (s.tally == null) s.tally = .{ .before = git.cloneChanges(a.gpa, ws.status), .from = s.thread.turns.items.len - 1 };
     if (s.option("model")) |m| a.store.putSession(.{ .id = id, .agent = s.agent, .cwd = ws.path, .model = m.current, .updated = a.now() }) else a.store.putSession(.{ .id = id, .agent = s.agent, .cwd = ws.path, .updated = a.now() });

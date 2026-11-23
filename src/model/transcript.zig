@@ -13,6 +13,13 @@ pub const Image = struct {
     key: []const u8,
 };
 
+/// A file a prompt linked for the agent to read.
+pub const File = struct {
+    name: []const u8,
+    /// Its path (or, replayed, the URI the agent was given).
+    path: []const u8,
+};
+
 pub const Tool = struct {
     id: []const u8,
     name: []const u8,
@@ -54,6 +61,7 @@ pub const Item = union(enum) {
 pub const Turn = struct {
     prompt: std.ArrayList(u8) = .empty,
     images: std.ArrayList(Image) = .empty,
+    files: std.ArrayList(File) = .empty,
     items: std.ArrayList(Item) = .empty,
     /// Milliseconds on the wall clock.
     started: i64,
@@ -228,6 +236,12 @@ pub const Thread = struct {
         th.version += 1;
         switch (u) {
             .user_text => |text| th.userText(text, now),
+            .user_file => |f| {
+                const fresh = if (th.last()) |t| t.items.items.len == 0 and t.ended == null else false;
+                if (!fresh) _ = th.openTurn("", now);
+                const name = if (f.name.len > 0) f.name else std.fs.path.basename(f.uri);
+                th.keepFile(th.last().?, name, f.uri);
+            },
             .user_image => |img| {
                 const fresh = if (th.last()) |t| t.items.items.len == 0 and t.ended == null else false;
                 if (!fresh) _ = th.openTurn("", now);
@@ -368,6 +382,11 @@ pub const Thread = struct {
     pub fn addImage(th: *Thread, t: *Turn, mime: []const u8, bytes: []const u8) void {
         const key = std.fmt.allocPrint(th.a(), "img-{x}", .{@intFromPtr(bytes.ptr)}) catch return;
         t.images.append(th.a(), .{ .mime = th.a().dupe(u8, mime) catch "", .bytes = bytes, .key = key }) catch {};
+    }
+
+    /// Keeps the name and path of a file the prompt of turn `t` linked.
+    pub fn keepFile(th: *Thread, t: *Turn, name: []const u8, path: []const u8) void {
+        t.files.append(th.a(), .{ .name = th.a().dupe(u8, name) catch return, .path = th.a().dupe(u8, path) catch return }) catch {};
     }
 
     /// Copies `bytes` into the thread, for an image sent from here.

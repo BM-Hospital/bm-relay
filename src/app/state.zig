@@ -16,17 +16,30 @@ pub const Status = enum { waiting, running, stopped, idle };
 /// How many recent sessions keep their agent running.
 pub const warm = 6;
 pub const max_images = 8;
+/// Files (not images) a prompt carries: links the agent reads.
+pub const max_files = 20;
 pub const max_image_bytes = 3_932_160;
 
 /// An image to send: pasted, dropped or attached.
+/// What a prompt carries besides its words: an image (its bytes), or a
+/// file (its path: the agent reads it, as ACP's `resource_link`).
 pub const Attachment = struct {
     mime: []const u8,
     bytes: []u8,
     name: []u8,
+    /// A file's full path; empty for an image.
+    path: []u8 = &.{},
+    /// A file's size in bytes.
+    size: u64 = 0,
+
+    pub fn isFile(at: Attachment) bool {
+        return at.path.len > 0;
+    }
 
     pub fn deinit(at: Attachment, gpa: std.mem.Allocator) void {
         gpa.free(at.bytes);
         gpa.free(at.name);
+        gpa.free(at.path);
     }
 };
 

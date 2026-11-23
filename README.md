@@ -51,7 +51,9 @@ Thử không cần tài khoản: thêm agent giả `node tools/mock-acp.mjs`.
 - Câu trả lời Markdown stream trực tiếp, code tô màu, work log, kế hoạch,
   subagent
 - Phê duyệt có diff xem trước; Retry, Edit, Copy cho từng prompt
-- Composer: `@` chọn file, `/` skill và lệnh, dán ảnh, hàng đợi prompt
+- Composer: `@` chọn file, `/` skill và lệnh, hàng đợi prompt; đính kèm
+  nhiều file bằng nút +, kéo thả từ Explorer hoặc Ctrl+V file đã copy (ảnh
+  gửi kèm, file khác gửi dạng `resource_link` để agent tự đọc)
 - Chọn model, chế độ phân quyền, mức suy nghĩ, context đã dùng
 - Chuyển nhánh git; bảng thay đổi (diff, stage, discard) và khôi phục file
   theo lượt

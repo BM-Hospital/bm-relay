@@ -51,9 +51,11 @@ pub fn attach(a: *App, c: *ui.Context) void {
     if (p.interaction().hovered) c.cursor = .hand;
     if (ui.buttonMenu(c, &a.menus.attach, p.interaction())) |m| {
         defer m.end();
+        if (m.item("Attach files…", .{ .icon = "paperclip" })) draft.chooseFiles(a);
         if (m.item("Mention a file", .{ .shortcut = "@" })) draft.mention(a);
-        if (m.item("Choose images…", .{})) draft.chooseImages(a);
-        if (m.item("Paste image", .{ .shortcut = ui.keys.label("⌘V") })) _ = draft.pasteImage(a);
+        if (m.item("Paste files or image", .{ .shortcut = ui.keys.label("⌘V") })) {
+            if (!draft.pasteFiles(a) and !draft.pasteImage(a)) a.toast("The clipboard has no files or image");
+        }
     }
 }
 

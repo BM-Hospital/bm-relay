@@ -60,6 +60,9 @@ pub const App = struct {
 
     composer: ui.TextArea,
     attachments: std.ArrayList(state.Attachment) = .empty,
+    /// Drags over the window: files from Explorer or Finder onto the
+    /// composer (`myzig.systemDrop`).
+    dnd: ui.DragDrop = .{},
     picker: ?state.Picker = null,
     /// The model menu's filter.
     model_search: ui.TextBuffer = .{},
@@ -220,6 +223,7 @@ pub const App = struct {
         a.recent.deinit(a.gpa);
         for (a.attachments.items) |x| x.deinit(a.gpa);
         a.attachments.deinit(a.gpa);
+        a.dnd.deinit();
         a.composer.deinit();
         if (a.changes) |*c| c.deinit(a.gpa);
         a.settings.deinit(a.gpa);

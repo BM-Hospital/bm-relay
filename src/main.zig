@@ -84,13 +84,27 @@ pub fn main(init: std.process.Init) !void {
         .theme = tokens.theme(),
         .content = .{ .view = .init(&a, root.view) },
         .on_close = .{ .ctx = &a, .func = closed },
+        .on_drop = .of(&a, dropped),
     });
+    // Files dragged from other apps reach the composer's drop target.
+    if (a.window) |w| myzig.systemDrop(w, &a.dnd, &.{}) catch |e| std.log.warn("drops: {s}", .{@errorName(e)});
     app.run() catch |e| std.log.err("run: {s}", .{@errorName(e)});
     agent.stopAll(&a);
     a.window = null;
     // Git still reading a folder uses the app's memory: let it finish.
     @import("host/jobs.zig").drain(init.io, 5);
     @import("host/npx.zig").deinit(gpa);
+}
+
+/// Files let go on the window where nothing takes them: a folder opens
+/// (as Add folder does), files are attached to the draft.
+fn dropped(a: *App, _: *myzig.Window, paths: []const []const u8) void {
+    for (paths) |p| {
+        const st = std.Io.Dir.cwd().statFile(a.io, p, .{}) catch continue;
+        if (st.kind == .directory) return sessions.openPath(a, p);
+    }
+    _ = @import("app/draft.zig").attachFiles(a, paths);
+    a.redraw();
 }
 
 test {
@@ -122,5 +136,6 @@ test {
     _ = @import("views/timeline.zig");
     _ = @import("views/composer_menus.zig");
     _ = @import("views/timeline_test.zig");
+    _ = @import("views/composer_test.zig");
     _ = @import("views/branches.zig");
 }

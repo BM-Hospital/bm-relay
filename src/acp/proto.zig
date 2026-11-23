@@ -78,6 +78,8 @@ pub const Message = struct {
 pub const Update = union(enum) {
     user_text: []const u8,
     user_image: struct { mime: []const u8, data: []const u8 },
+    /// A file the prompt linked (`resource_link`), replayed.
+    user_file: struct { name: []const u8, uri: []const u8 },
     /// An image among the agent's words (base64, as ACP sends it).
     agent_image: struct { mime: []const u8, data: []const u8 },
     text: []const u8,
@@ -111,6 +113,8 @@ pub fn parseUpdate(a: std.mem.Allocator, u: ?Value) Update {
     if (eq(u8, kind, "user_message_chunk")) {
         if (eq(u8, json.strOr(content, "type", ""), "image"))
             return .{ .user_image = .{ .mime = json.strOr(content, "mimeType", ""), .data = json.strOr(content, "data", "") } };
+        if (eq(u8, json.strOr(content, "type", ""), "resource_link"))
+            return .{ .user_file = .{ .name = json.strOr(content, "name", ""), .uri = json.strOr(content, "uri", "") } };
         return .{ .user_text = text };
     }
     if (eq(u8, kind, "agent_message_chunk")) {

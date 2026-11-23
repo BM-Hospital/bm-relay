@@ -126,6 +126,14 @@ fn card(a: *App, c: *ui.Context) void {
     const s = a.active;
     const box = ui.div(c).column().wFull().gap(8).pt(if (a.attachments.items.len == 0) 12 else 10).px(10).pb(10).rounded(20).bg(t.gray_100.alpha(0.96)).shadow(t.shadow_composer);
     defer box.end();
+    // Files dragged over it: it says so, in the accent.
+    const over = dropTarget(a, c, box.index);
+    if (over) {
+        const hint = ui.div(c).row().wFull().gap(8).px(6).pt(2).itemsCenter();
+        defer hint.end();
+        comp.icon(c, "paperclip", .{ .size = 14, .color = t.accent });
+        ui.text(c, "Drop to attach the files", .{ .size = 13, .weight = .medium, .color = t.accent });
+    }
     attachments(a, c);
     // A box's id follows where it is, and the draft moves: from Home to the
     // session its first prompt starts, below attachments as they come. The
@@ -133,7 +141,8 @@ fn card(a: *App, c: *ui.Context) void {
     const id = c.peekId(null);
     if (a.composer.id != 0 and a.composer.id != id and c.focus == a.composer.id) c.focus = id;
     const focused = c.focus == id;
-    _ = box.border(if (focused) t.alpha_300.mix(t.gray_600, 0.4) else t.alpha_400);
+    _ = box.border(if (over) t.accent else if (focused) t.alpha_300.mix(t.gray_600, 0.4) else t.alpha_400);
+    if (over) _ = box.bg(t.gray_100.mix(t.accent, 0.08));
     keys(a, c, focused);
     const hint = if (s) |x| (if (x.isEmpty()) "Describe a change. @ to mention files, / for skills" else "Reply, or type @ for files and / for skills") else "Describe a change. @ to mention files, / for skills";
     const r = ui.textArea(c, &a.composer, .{ .lines = .{ 1, 12 }, .placeholder = hint, .bare = true, .size = 14 });
@@ -168,9 +177,11 @@ fn keys(a: *App, c: *ui.Context, focused: bool) void {
         send(a, text);
         return;
     }
-    // A picture on the clipboard is attached; text pastes as usual.
+    // Files copied in Explorer (Finder) or a picture on the clipboard are
+    // attached; text pastes as usual (it never comes here on Windows: the
+    // field takes it first).
     if (c.input.shortcut) |sc| if (sc.key == 'v' and (sc.cmd or sc.ctrl) and !sc.shift and !sc.alt) {
-        if (draft.pasteImage(a)) _ = c.shortcut(sc);
+        if (draft.pasteFiles(a) or draft.pasteImage(a)) _ = c.shortcut(sc);
     };
     if (takeKey(c, .escape)) if (a.active) |s| {
         if (s.permission != null) agent.answerPermission(a, s, "reject_once") else if (s.thread.running()) turns.stop(a);
@@ -211,10 +222,39 @@ fn send(a: *App, text: []const u8) void {
 
 fn attachments(a: *App, c: *ui.Context) void {
     if (a.attachments.items.len == 0) return;
-    const row = ui.div(c).row().gap(8).pb(4);
-    defer row.end();
+    const all = ui.div(c).column().wFull().gap(8).pb(4);
+    defer all.end();
     var remove: ?usize = null;
+    // The files, three a line, as wide as each other.
+    var files: usize = 0;
+    for (a.attachments.items) |at| {
+        if (at.isFile()) files += 1;
+    }
+    var line: ?ui.Div = null;
+    var in_line: usize = 0;
+    for (a.attachments.items, 0..) |f, i| {
+        if (!f.isFile()) continue;
+        if (line == null) line = ui.div(c).row().wFull().gap(8);
+        c.keyed(i);
+        if (fileChip(c, f)) remove = i;
+        in_line += 1;
+        if (in_line == 3) {
+            line.?.end();
+            line = null;
+            in_line = 0;
+        }
+    }
+    if (line) |l| {
+        // A short last line keeps a third each.
+        while (in_line < 3) : (in_line += 1) ui.div(c).grow().w(0).end();
+        l.end();
+    }
+    // The images, on a line of their own.
+    var shots: ?ui.Div = null;
+    defer if (shots) |r| r.end();
     for (a.attachments.items, 0..) |img, i| {
+        if (img.isFile()) continue;
+        if (shots == null) shots = ui.div(c).row().gap(8);
         c.keyed(i);
         const shot = ui.div(c).w(56).h(56);
         const hot = shot.hovered();
@@ -232,6 +272,49 @@ fn attachments(a: *App, c: *ui.Context) void {
         shot.end();
     }
     if (remove) |i| draft.removeAttachment(a, i);
+}
+
+/// A file attached: its icon, name and size; a cross on hover removes it
+/// (true then).
+fn fileChip(c: *ui.Context, f: state.Attachment) bool {
+    const chip = ui.div(c).row().grow().w(0).h(52).pl(10).pr(10).gap(10).itemsCenter().rounded(10).bg(t.alpha_100).border(t.alpha_300);
+    const hot = chip.hovered();
+    {
+        const tile = ui.div(c).w(32).h(32).center().rounded(8).bg(t.blue_900.alpha(0.14));
+        defer tile.end();
+        comp.icon(c, "file", .{ .size = 16, .color = t.blue_900 });
+    }
+    {
+        const col = ui.div(c).column().grow().w(0).gap(2).clip();
+        defer col.end();
+        ui.text(c, f.name, .{ .size = 13, .weight = .medium });
+        var buf: [32]u8 = undefined;
+        const ext = std.fs.path.extension(f.name);
+        const kind = if (ext.len > 1) c.print("{s} · ", .{ext[1..]}) else "";
+        ui.text(c, c.print("{s}{s}", .{ kind, @import("../app/purge.zig").size(&buf, f.size) }), .{ .size = 11, .color = t.gray_700 });
+    }
+    var gone = false;
+    {
+        const x = ui.div(c).w(18).h(18).center().rounded(9).bg(t.gray_1000).opacity(if (hot) 1 else 0);
+        comp.icon(c, "x", .{ .size = 10, .color = t.background_100 });
+        x.end();
+        if (hot and comp.press(x)) gone = true;
+    }
+    chip.end();
+    return gone;
+}
+
+/// Files dragged from Explorer (or Finder) onto the composer: attached.
+/// True while some are over it.
+fn dropTarget(a: *App, c: *ui.Context, card_index: u32) bool {
+    const transfer = @import("myzig").transfer;
+    const target = a.dnd.target(c, card_index, .{ .formats = &.{ transfer.file_list, transfer.uri_list } });
+    if (target.dropped) |drop| {
+        const paths = drop.data.files(c.alloc()) catch &.{};
+        _ = draft.attachFiles(a, paths);
+        c.focus = a.composer.id;
+    }
+    return target.over;
 }
 
 /// The composer's buttons. `width` is the composer's, last frame: one too

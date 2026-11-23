@@ -93,7 +93,7 @@ fn restoreRow(a: *App, c: *ui.Context) void {
 fn drawTurn(a: *App, c: *ui.Context, s: *Session, index: usize, turn: *Turn, files: []const git.Change) void {
     const col = ui.div(c).column().wFull().gap(20);
     defer col.end();
-    if (turn.prompt.items.len > 0 or turn.images.items.len > 0) {
+    if (turn.prompt.items.len > 0 or turn.images.items.len > 0 or turn.files.items.len > 0) {
         const editing = if (a.prompt_edit) |e| e.session == s.key and e.turn == index else false;
         if (editing) editBox(a, c, s) else {
             const p = ui.div(c).column().wFull().itemsEnd().gap(4);
@@ -101,6 +101,7 @@ fn drawTurn(a: *App, c: *ui.Context, s: *Session, index: usize, turn: *Turn, fil
             const hot = p.hovered();
             if (turn.prompt.items.len > 0) bubble(c, turn.prompt.items);
             if (turn.images.items.len > 0) thumbnails(c, turn);
+            if (turn.files.items.len > 0) fileChips(c, turn);
             promptActions(a, c, s, index, turn, hot and a.active == s);
         }
     }
@@ -194,6 +195,28 @@ fn thumbnails(c: *ui.Context, turn: *Turn) void {
         const box = ui.div(c).w(96).h(72).rounded(10).border(t.alpha_300).clip();
         defer box.end();
         if (!ui.image(c, .{ .key = img.key, .bytes = img.bytes, .size = .{ .w = 96, .h = 72 }, .radius = 10 })) comp.icon(c, "file", .{ .size = 16, .color = t.gray_700 });
+    }
+}
+
+/// The files the prompt linked, under its words; a click opens one.
+fn fileChips(c: *ui.Context, turn: *Turn) void {
+    const col = ui.div(c).column().itemsEnd().gap(6);
+    defer col.end();
+    for (turn.files.items, 0..) |f, i| {
+        c.keyed(i);
+        const chip = ui.div(c).row().maxW(360).h(34).px(10).gap(8).itemsCenter().rounded(9).bg(t.alpha_100).border(t.alpha_300).hover(t.alpha_200).control();
+        comp.icon(c, "paperclip", .{ .size = 13, .color = t.blue_900 });
+        {
+            const n = ui.div(c).clip();
+            defer n.end();
+            ui.text(c, f.name, .{ .size = 13 });
+        }
+        chip.end();
+        if (chip.interaction().hovered) c.cursor = .hand;
+        if (comp.press(chip)) {
+            const shell = @import("myzig").shell;
+            _ = if (std.mem.startsWith(u8, f.path, "file:")) shell.openUrl(f.path) else shell.openPath(f.path);
+        }
     }
 }
 
