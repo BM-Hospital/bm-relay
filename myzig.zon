@@ -3,6 +3,6 @@
     .name = "BM Coding Agent",
     .identifier = "me.hunghg.bm-agent",
     .executable = "bm-agent",
-    .version = "0.1.0",
+    .version = "0.1.1",
     .icon = "resources/icon.png",
 }
