@@ -171,64 +171,369 @@ pub fn model(a: *App, c: *ui.Context, s: *Session) void {
     if (comp.press(p)) {
         st.toggle();
         a.model_search.clear();
+        a.model_nav_len = 0;
+        a.model_hi = 0;
+        a.model_seek = true;
     }
     const pop = ui.popover(c, st, p.interaction(), .{ .side = .above, .bare = true, .gap = 8 }) orelse return;
     defer pop.end();
-    panel(pop, 360);
-    _ = ui.textField(c, &a.model_search, .{ .placeholder = "Search models", .width = .fill });
+    const items = gather(a, c, s);
+    const agents = listed(a);
+    // One agent: its models in one list. More: the agents beside them.
+    const two = agents > 1;
+    panel(pop, if (two) 600 else 380);
     const q = a.model_search.text();
-    const list = ui.div(c).column().wFull().maxH(380).scrollY().pt(4);
-    defer list.end();
-    // The session's own agent first.
-    group(a, c, s, s.agent, q, st);
-    for (a.store.data.agents) |ag| {
-        if (ag.off or std.mem.eql(u8, ag.id, s.agent)) continue;
-        group(a, c, s, ag.id, q, st);
+    const qh = std.hash.Wyhash.hash(@intFromBool(a.model_free), q);
+    if (qh != a.model_q) {
+        a.model_q = qh;
+        a.model_hi = 0;
+        if (q.len > 0) a.model_seek = false;
     }
+    var any_free = false;
+    for (items) |it| any_free = any_free or it.free;
+    // The arrows move along the rows shown; Enter picks: taken before the
+    // search field would.
+    const keys = @import("composer.zig");
+    var moved = false;
+    if (keys.takeKey(c, .down)) {
+        a.model_hi += 1;
+        moved = true;
+    }
+    if (keys.takeKey(c, .up)) {
+        a.model_hi -|= 1;
+        moved = true;
+    }
+    const enter = keys.takeKey(c, .enter);
+    {
+        const top = ui.div(c).row().wFull().gap(8).itemsCenter();
+        defer top.end();
+        const f = ui.div(c).grow().w(0);
+        // Typing searches as soon as it opens.
+        const field = c.peekId(null);
+        if (st.justOpened(c)) c.focus = field;
+        _ = ui.textField(c, &a.model_search, .{ .placeholder = "Search models", .width = .fill });
+        f.end();
+        if (any_free or a.model_free) freeToggle(a, c);
+    }
+    var rows: Rows = .{ .a = a, .c = c, .s = s, .st = st, .enter = enter, .moved = moved };
+    if (!two) {
+        const list = ui.div(c).column().wFull().maxH(400).scrollY().pt(4);
+        rows.list = c.node(list.index).id;
+        shown(&rows, items, s.agent, q);
+        list.end();
+    } else {
+        const body = ui.div(c).row().wFull().h(420).gap(6).pt(6);
+        defer body.end();
+        const key = nav(a, c, s, items, q);
+        const list = ui.div(c).column().grow().w(0).hFull().scrollY();
+        rows.list = c.node(list.index).id;
+        if (std.mem.eql(u8, key, recent_key)) recent(&rows, items, q) else shown(&rows, items, key, q);
+        list.end();
+    }
+    if (rows.count > 0 and a.model_hi >= rows.count) a.model_hi = rows.count - 1;
 }
 
-fn group(a: *App, c: *ui.Context, s: *Session, agent_id: []const u8, q: []const u8, st: *ui.OverlayState) void {
+/// More models than this: an agent's are shown under their companies.
+const big_list = 24;
+
+/// A model in the picker, of any agent.
+const Item = struct {
+    agent: []const u8,
+    value: []const u8,
+    /// Its name, as shown.
+    name: []const u8,
+    /// Its company's name ("OpenAI"); "" when its id does not say.
+    vendor: []const u8,
+    /// Its agent has many models: they show under their companies.
+    many: bool,
+    own: bool,
+    on: bool,
+    free: bool,
+};
+
+/// How many agents the picker lists: those not turned off.
+fn listed(a: *App) usize {
+    var n: usize = 0;
+    for (a.store.data.agents) |ag| {
+        if (!ag.off) n += 1;
+    }
+    return n;
+}
+
+/// Every agent's models: the session's agent's (as it offers them), then
+/// the others' (as last seen); only free ones when so asked. A big
+/// agent's by company, A to Z.
+fn gather(a: *App, c: *ui.Context, s: *Session) []Item {
+    var out: std.ArrayList(Item) = .empty;
+    addAgent(a, c, s, s.agent, &out);
+    for (a.store.data.agents) |ag| {
+        if (ag.off or std.mem.eql(u8, ag.id, s.agent)) continue;
+        addAgent(a, c, s, ag.id, &out);
+    }
+    return out.items;
+}
+
+fn addAgent(a: *App, c: *ui.Context, s: *Session, agent_id: []const u8, out: *std.ArrayList(Item)) void {
     const own = std.mem.eql(u8, agent_id, s.agent);
     const live = if (own) s.option("model") else null;
     const cached = a.store.models(agent_id);
     const n = if (live) |m| m.choices.len else if (cached) |m| m.values.len else 0;
-    var shown: usize = 0;
+    const many = n > big_list;
+    const first = out.items.len;
     var i: usize = 0;
     while (i < n) : (i += 1) {
         const value = if (live) |m| m.choices[i].value else cached.?.values[i];
         const given = if (live) |m| m.choices[i].name else cached.?.names[i];
-        var buf: [128]u8 = undefined;
-        const name = format.modelName(&buf, value, given);
-        if (q.len > 0 and !contains(name, q) and !contains(value, q)) continue;
-        if (shown == 0) heading(c, a.agentName(agent_id), own);
-        shown += 1;
-        c.keyed(.{ agent_id.ptr, i });
-        const on = live != null and std.mem.eql(u8, value, live.?.current);
-        const r = row(c, on);
-        ui.text(c, name, .{ .size = 13 });
-        ui.spacer(c);
-        check(c, on);
-        r.end();
-        if (comp.press(r)) {
-            st.close();
-            agent.pickModel(a, agent_id, value);
-        }
+        const buf = c.alloc().alloc(u8, 128) catch return;
+        const name = format.modelName(buf, value, given);
+        const free = format.isFree(value, name);
+        if (a.model_free and !free) continue;
+        const vbuf = c.alloc().alloc(u8, 64) catch return;
+        out.append(c.alloc(), .{
+            .agent = agent_id,
+            .value = value,
+            .name = format.withoutFree(name),
+            .vendor = format.vendorName(vbuf, format.vendorOf(value)),
+            .many = many,
+            .own = own,
+            .on = live != null and std.mem.eql(u8, value, live.?.current),
+            .free = free,
+        }) catch {};
     }
-    if (n == 0 and q.len == 0) {
-        heading(c, a.agentName(agent_id), own);
-        const r = row(c, false);
-        ui.text(c, if (own) "The agent offers no model choice" else "Start a session on it to list its models", .{ .size = 12, .color = t.gray_700 });
-        r.end();
-        if (!own and comp.press(r)) {
-            st.close();
-            a.store.data.agent = a.store.dupe(agent_id);
-            a.store.save();
-            if (a.workspaceOf(s)) |w| @import("../app/sessions.zig").newSessionIn(a, w);
+    if (many) std.mem.sort(Item, out.items[first..], {}, struct {
+        fn lt(_: void, x: Item, y: Item) bool {
+            return std.ascii.lessThanIgnoreCase(x.vendor, y.vendor);
         }
+    }.lt);
+}
+
+/// "Free", on or off: only the models that cost nothing.
+fn freeToggle(a: *App, c: *ui.Context) void {
+    const b = ui.div(c).row().h(30).px(10).gap(6).itemsCenter().rounded(8).border(if (a.model_free) t.green_900.alpha(0.5) else t.alpha_400).control();
+    if (a.model_free) _ = b.bg(t.green_900.alpha(0.12));
+    _ = b.hover(t.alpha_200);
+    if (a.model_free) comp.icon(c, "check", .{ .size = 12, .color = t.green_900 });
+    ui.text(c, "Free", .{ .size = 12, .weight = .medium, .color = if (a.model_free) t.green_900 else t.gray_900 });
+    b.end();
+    if (comp.press(b)) a.model_free = !a.model_free;
+}
+
+/// The rows drawn, counted for the arrows.
+const Rows = struct {
+    a: *App,
+    c: *ui.Context,
+    s: *Session,
+    st: *ui.OverlayState,
+    enter: bool,
+    moved: bool,
+    list: u64 = 0,
+    count: usize = 0,
+};
+
+/// A model's row: its name, "free", `tag` (its agent), a check on the
+/// current one. Clicked, or Enter on it, picks it.
+fn modelRow(r: *Rows, it: Item, tag: ?[]const u8) void {
+    const a = r.a;
+    const c = r.c;
+    const index = r.count;
+    r.count += 1;
+    c.keyed(.{ it.agent.ptr, it.value.ptr });
+    if (a.model_seek and it.on) a.model_hi = index;
+    const hi = index == a.model_hi;
+    const d = row(c, it.on or hi);
+    {
+        const n = ui.div(c).grow().w(0).clip();
+        defer n.end();
+        ui.text(c, it.name, .{ .size = 13 });
+    }
+    if (it.free) {
+        const badge = ui.div(c).px(6).py(1).rounded(4).bg(t.green_900.alpha(0.14));
+        ui.text(c, "free", .{ .size = 11, .weight = .medium, .color = t.green_900 });
+        badge.end();
+    }
+    if (tag) |g| ui.text(c, g, .{ .size = 12, .color = t.gray_700 });
+    check(c, it.on);
+    d.end();
+    if (hi and r.moved) _ = reveal(c, r.list, c.node(d.index).id);
+    // Opened: scrolled to the current model, once it was laid out.
+    if (a.model_seek and it.on and reveal(c, r.list, c.node(d.index).id)) a.model_seek = false;
+    if (comp.press(d) or (hi and r.enter)) {
+        r.st.close();
+        a.store.rememberModel(it.agent, it.value);
+        agent.pickModel(a, it.agent, it.value);
+    }
+}
+
+/// Scrolls the list so row `id` (as last laid out) shows; false when
+/// neither was laid out yet.
+fn reveal(c: *ui.Context, list: u64, id: u64) bool {
+    const view = c.rects.get(list) orelse return false;
+    const rect = c.rects.get(id) orelse return false;
+    const before = c.scroll.get(list) orelse 0;
+    var after = before;
+    if (rect.y < view.y) after -= view.y - rect.y;
+    if (rect.y + rect.h > view.y + view.h) after += rect.y + rect.h - view.y - view.h;
+    if (after != before) {
+        c.scroll.put(c.gpa, list, @max(0, after)) catch {};
+        c.changed = true;
+    }
+    return true;
+}
+
+fn matches(it: Item, q: []const u8) bool {
+    if (q.len == 0) return true;
+    return contains(it.name, q) or contains(it.value, q) or contains(it.vendor, q);
+}
+
+/// How many of `agent_id`'s models match the search.
+fn countOf(items: []const Item, agent_id: []const u8, q: []const u8) usize {
+    var n: usize = 0;
+    for (items) |it| {
+        if (std.mem.eql(u8, it.agent, agent_id) and matches(it, q)) n += 1;
+    }
+    return n;
+}
+
+/// The right side: an agent's models that match, a big one's under their
+/// companies.
+fn shown(r: *Rows, items: []const Item, agent_id: []const u8, q: []const u8) void {
+    const c = r.c;
+    var company: ?[]const u8 = null;
+    for (items) |it| {
+        if (!std.mem.eql(u8, it.agent, agent_id) or !matches(it, q)) continue;
+        if (it.many and (company == null or !std.mem.eql(u8, company.?, it.vendor))) {
+            company = it.vendor;
+            c.keyed(it.value.ptr);
+            heading(c, if (it.vendor.len > 0) it.vendor else "Other", false);
+        }
+        modelRow(r, it, null);
+    }
+    if (r.count > 0) return;
+    if (q.len > 0 or freeOnly(r)) return empty(c, "No model matches");
+    noModels(r, agent_id);
+}
+
+fn freeOnly(r: *Rows) bool {
+    return r.a.model_free;
+}
+
+/// Recent: the models picked last, of any agent, that match.
+fn recent(r: *Rows, items: []const Item, q: []const u8) void {
+    const a = r.a;
+    for (a.store.data.recent_models) |k| for (items) |it| if (isRecent(k, it)) {
+        if (matches(it, q)) modelRow(r, it, if (it.own) null else a.agentName(it.agent));
+        break;
+    };
+    if (r.count == 0) empty(r.c, "No model matches");
+}
+
+fn empty(c: *ui.Context, text: []const u8) void {
+    const d = ui.div(c).wFull().px(8).py(12);
+    defer d.end();
+    ui.text(c, text, .{ .size = 12, .color = t.gray_700 });
+}
+
+/// An agent with no models known: a row that starts a session on it.
+fn noModels(r: *Rows, agent_id: []const u8) void {
+    const a = r.a;
+    const c = r.c;
+    const own = std.mem.eql(u8, agent_id, r.s.agent);
+    const d = row(c, false);
+    ui.text(c, if (own) "The agent offers no model choice" else "Start a session on it to list its models", .{ .size = 12, .color = t.gray_700 });
+    d.end();
+    if (!own and comp.press(d)) {
+        r.st.close();
+        a.store.data.agent = a.store.dupe(agent_id);
+        a.store.save();
+        if (a.workspaceOf(r.s)) |w| @import("../app/sessions.zig").newSessionIn(a, w);
+    }
+}
+
+const recent_key = "\x00recent";
+
+/// The left side: Recent, then the agents (the session's first). A search
+/// counts what matches in each, and moves to one with matches when the
+/// one shown has none. Returns what is shown.
+fn nav(a: *App, c: *ui.Context, s: *Session, items: []const Item, q: []const u8) []const u8 {
+    var key: []const u8 = a.model_nav[0..a.model_nav_len];
+    var recents: usize = 0;
+    for (a.store.data.recent_models) |k| for (items) |it| if (isRecent(k, it)) {
+        if (matches(it, q)) recents += 1;
+        break;
+    };
+    const valid = (std.mem.eql(u8, key, recent_key) and recents > 0) or (key.len > 0 and a.store.agent(key) != null);
+    if (!valid) {
+        setNav(a, s.agent);
+        key = s.agent;
+    }
+    if (q.len > 0 and !std.mem.eql(u8, key, recent_key) and countOf(items, key, q) == 0) {
+        // The first agent with matches, the session's first.
+        const ids = agentOrder(a, c, s);
+        for (ids) |id| if (countOf(items, id, q) > 0) {
+            setNav(a, id);
+            key = id;
+            break;
+        };
+    }
+    const side = ui.div(c).column().w(180).hFull().scrollY().gap(1).pr(6);
+    defer side.end();
+    if (recents > 0) navEntry(a, c, recent_key, "Recent", recents, "clock", t.blue_900, "");
+    for (agentOrder(a, c, s)) |id| {
+        c.keyed(id.ptr);
+        const n = countOf(items, id, q);
+        const known = for (items) |it| {
+            if (std.mem.eql(u8, it.agent, id)) break true;
+        } else false;
+        navEntry(a, c, id, a.agentName(id), n, "user", t.purple_900, if (std.mem.eql(u8, id, s.agent)) "this session" else if (!known and q.len == 0) "no models yet" else "");
+    }
+    return a.model_nav[0..a.model_nav_len];
+}
+
+/// The agents listed: the session's, then the others as in Settings.
+fn agentOrder(a: *App, c: *ui.Context, s: *Session) []const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    out.append(c.alloc(), s.agent) catch {};
+    for (a.store.data.agents) |ag| {
+        if (ag.off or std.mem.eql(u8, ag.id, s.agent)) continue;
+        out.append(c.alloc(), ag.id) catch {};
+    }
+    return out.items;
+}
+
+fn setNav(a: *App, key: []const u8) void {
+    const n = @min(key.len, a.model_nav.len);
+    @memcpy(a.model_nav[0..n], key[0..n]);
+    a.model_nav_len = n;
+    a.model_hi = 0;
+}
+
+fn isRecent(k: []const u8, it: Item) bool {
+    return k.len == it.agent.len + 1 + it.value.len and std.mem.startsWith(u8, k, it.agent) and k[it.agent.len] == '|' and std.mem.endsWith(u8, k, it.value);
+}
+
+fn navEntry(a: *App, c: *ui.Context, key: []const u8, label: []const u8, n: usize, icon: []const u8, tint: ui.Color, note: []const u8) void {
+    const on = std.mem.eql(u8, a.model_nav[0..a.model_nav_len], key);
+    const d = ui.div(c).row().wFull().px(8).py(7).gap(8).itemsCenter().rounded(6).control();
+    if (on) _ = d.bg(t.alpha_300);
+    _ = d.hover(t.alpha_200);
+    comp.icon(c, icon, .{ .size = 13, .color = tint });
+    {
+        const l = ui.div(c).column().grow().w(0).clip();
+        defer l.end();
+        ui.text(c, label, .{ .size = 13, .weight = if (on) .medium else .regular, .color = if (on) t.gray_1000 else t.gray_900 });
+        if (note.len > 0) ui.text(c, note, .{ .size = 11, .color = t.gray_700 });
+    }
+    if (n > 0) ui.text(c, c.print("{d}", .{n}), .{ .size = 11, .color = t.gray_700 });
+    d.end();
+    if (comp.press(d)) {
+        setNav(a, key);
+        a.model_seek = true;
     }
 }
 
 fn contains(hay: []const u8, needle: []const u8) bool {
+
+
     if (needle.len > hay.len) return false;
     var i: usize = 0;
     while (i + needle.len <= hay.len) : (i += 1) if (std.ascii.eqlIgnoreCase(hay[i .. i + needle.len], needle)) return true;

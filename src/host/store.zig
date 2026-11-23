@@ -72,6 +72,8 @@ pub const Data = struct {
     /// The default agents this file has been offered: one added to the
     /// app later is offered once, and stays gone if the user removes it.
     known_agents: []const []const u8 = &.{},
+    /// Models picked lately, the last first: "agent|model".
+    recent_models: []const []const u8 = &.{},
     /// "system", "light" or "dark": dark, as the app first looked, until
     /// the user picks.
     theme: []const u8 = "dark",
@@ -276,6 +278,18 @@ pub const Store = struct {
 
     pub fn setMcp(s: *Store, list: []const Mcp) void {
         s.data.mcp = s.a().dupe(Mcp, list) catch return;
+    }
+
+    /// Puts model `value` of `agent_id` first among the recent ones.
+    pub fn rememberModel(s: *Store, agent_id: []const u8, value: []const u8) void {
+        const key = std.fmt.allocPrint(s.a(), "{s}|{s}", .{ agent_id, value }) catch return;
+        var out: std.ArrayList([]const u8) = .empty;
+        out.append(s.a(), key) catch return;
+        for (s.data.recent_models) |k| {
+            if (out.items.len >= 8) break;
+            if (!std.mem.eql(u8, k, key)) out.append(s.a(), k) catch {};
+        }
+        s.data.recent_models = out.items;
     }
 
     pub fn models(s: *const Store, agent_id: []const u8) ?*const Models {

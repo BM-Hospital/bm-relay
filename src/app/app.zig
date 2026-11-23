@@ -63,6 +63,16 @@ pub const App = struct {
     picker: ?state.Picker = null,
     /// The model menu's filter.
     model_search: ui.TextBuffer = .{},
+    /// The model picker: the group it shows ("" until one is picked: the
+    /// current model's), the row the arrows are on, only free models.
+    model_nav: [128]u8 = undefined,
+    model_nav_len: usize = 0,
+    model_hi: usize = 0,
+    model_free: bool = false,
+    /// Just opened: the arrows start on the current model, scrolled to.
+    model_seek: bool = false,
+    /// What was searched last frame: a new search starts at the top.
+    model_q: u64 = 0,
 
     menus: Menus = .{},
     dialog: ?state.Dialog = null,

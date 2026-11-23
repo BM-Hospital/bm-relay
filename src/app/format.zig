@@ -192,3 +192,66 @@ test "times and names" {
     try std.testing.expectEqualStrings("\\*not bold\\* https://a.io\\\nnext", plainMarkdown(ar, "*not bold* https://a.io\nnext"));
     try std.testing.expectEqualStrings("&nbsp;&nbsp;&nbsp;&nbsp;code\\? www.a.io", plainMarkdown(ar, "    code? www.a.io"));
 }
+
+/// The company a model is from, by its id: "openrouter/openai/gpt-5" (a
+/// router's) → "openai", "anthropic/claude-x" → "anthropic"; "" when the
+/// id does not say ("gpt-5").
+pub fn vendorOf(id: []const u8) []const u8 {
+    var it = std.mem.splitScalar(u8, id, '/');
+    const first = it.next() orelse return "";
+    const second = it.next() orelse return "";
+    return if (it.next() != null) second else first;
+}
+
+/// A company's name as it writes it: "openai" → "OpenAI".
+pub fn vendorName(buf: []u8, key: []const u8) []const u8 {
+    const known = [_]struct { []const u8, []const u8 }{
+        .{ "openai", "OpenAI" },             .{ "anthropic", "Anthropic" },   .{ "google", "Google" },
+        .{ "meta-llama", "Meta" },           .{ "mistralai", "Mistral" },     .{ "mistral", "Mistral" },
+        .{ "deepseek", "DeepSeek" },         .{ "qwen", "Qwen" },             .{ "x-ai", "xAI" },
+        .{ "xai", "xAI" },                   .{ "nvidia", "NVIDIA" },         .{ "moonshotai", "Moonshot" },
+        .{ "z-ai", "Z.ai" },                 .{ "zai", "Z.ai" },              .{ "minimax", "MiniMax" },
+        .{ "cohere", "Cohere" },             .{ "microsoft", "Microsoft" },   .{ "amazon", "Amazon" },
+        .{ "perplexity", "Perplexity" },     .{ "ai21", "AI21" },             .{ "ibm-granite", "IBM Granite" },
+        .{ "openrouter", "OpenRouter" },     .{ "github-copilot", "GitHub Copilot" }, .{ "opencode", "OpenCode" },
+        .{ "baidu", "Baidu" },               .{ "tencent", "Tencent" },       .{ "bytedance", "ByteDance" },
+    };
+    if (key.len == 0) return "Other";
+    for (known) |k| if (std.ascii.eqlIgnoreCase(k[0], key)) return k[1];
+    // "aion-labs" → "Aion Labs".
+    var w: usize = 0;
+    var start = true;
+    for (key) |ch| {
+        if (w >= buf.len) break;
+        if (ch == '-' or ch == '_') {
+            buf[w] = ' ';
+            start = true;
+        } else {
+            buf[w] = if (start) std.ascii.toUpper(ch) else ch;
+            start = false;
+        }
+        w += 1;
+    }
+    return buf[0..w];
+}
+
+/// Whether a model costs nothing: "… (free)", or a router's ":free".
+pub fn isFree(id: []const u8, name: []const u8) bool {
+    return std.mem.endsWith(u8, id, ":free") or std.mem.endsWith(u8, name, "(free)");
+}
+
+/// The name without " (free)": a badge says it.
+pub fn withoutFree(name: []const u8) []const u8 {
+    return if (std.mem.endsWith(u8, name, " (free)")) name[0 .. name.len - " (free)".len] else name;
+}
+
+test "a model's company" {
+    try std.testing.expectEqualStrings("openai", vendorOf("openrouter/openai/gpt-5"));
+    try std.testing.expectEqualStrings("anthropic", vendorOf("anthropic/claude-x"));
+    try std.testing.expectEqualStrings("", vendorOf("gpt-5"));
+    var buf: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("OpenAI", vendorName(&buf, "openai"));
+    try std.testing.expectEqualStrings("Aion Labs", vendorName(&buf, "aion-labs"));
+    try std.testing.expect(isFree("x/y:free", "Y"));
+    try std.testing.expectEqualStrings("Nemotron", withoutFree("Nemotron (free)"));
+}

@@ -204,11 +204,19 @@ fn group(a: *App, c: *ui.Context, w: *Workspace, wi: usize) void {
     }
 }
 
+/// Opens a folder where the system shows files.
+const reveal_label = switch (@import("builtin").os.tag) {
+    .windows => "Reveal in File Explorer",
+    .macos => "Reveal in Finder",
+    else => "Open in file manager",
+};
+
 /// The folder heading's menu: a right click on it.
 fn folderMenu(a: *App, c: *ui.Context, w: *Workspace, wi: usize, target: ui.Interaction) void {
     const m = ui.contextMenu(c, &a.menus.folders, target) orelse return;
     defer m.end();
     if (m.item("New session", .{ .icon = "plus", .shortcut = ui.keys.label("⌘N") })) sessions.newSessionIn(a, w);
+    if (m.item(reveal_label, .{ .icon = "folder" })) _ = myzig.shell.openPath(w.path);
     if (m.item("Copy path", .{ .icon = "doc.on.doc" })) myzig.clipboard.writeText(w.path);
     m.separator();
     if (m.item("Remove folder", .{ .icon = "trash" })) {

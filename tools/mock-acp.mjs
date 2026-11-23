@@ -18,10 +18,25 @@ const waiting = new Map();
 let nextId = 1000;
 let cancelled = false;
 
+// MOCK_MANY: a router's hundreds of models ("openrouter/<company>/<model>"),
+// as OpenCode offers them.
+const many = () => {
+  const companies = { openai: ['GPT Astra', 'GPT Luna', 'GPT Mini', 'GPT OSS 120B', 'GPT OSS 20B'], google: ['Gemini Pro', 'Gemini Flash', 'Gemma 4'],
+    anthropic: ['Claude Opus', 'Claude Sonnet', 'Claude Haiku'], 'meta-llama': ['Llama 5 70B', 'Llama 5 8B'], deepseek: ['DeepSeek V4', 'DeepSeek R2'],
+    qwen: ['Qwen 4 Max', 'Qwen 4 Coder'], nvidia: ['Nemotron 3.5 Lightning'], mistralai: ['Mistral Large', 'Codestral'], 'aion-labs': ['Aion 3.5'], 'x-ai': ['Grok 5'] };
+  const out = [];
+  for (const [co, names] of Object.entries(companies)) for (const n of names) for (const v of ['', ' Latest']) {
+    const id = `openrouter/${co}/${(n + v).toLowerCase().replace(/ /g, '-')}`;
+    const free = co === 'nvidia' || n.includes('Mini') || n.includes('Gemma');
+    out.push({ value: id + (free ? ':free' : ''), name: `openrouter/${n}${v}${free ? ' (free)' : ''}` });
+  }
+  return out;
+};
+
 const options = (s) => ({
   configOptions: [
     { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: s.model,
-      options: [{ value: 'mock-fast', name: 'Mock Fast' }, { value: 'mock-smart', name: 'Mock Smart' }, { value: 'mock-long', name: 'Nemotron 3.5 Lightning (free)' }] },
+      options: [{ value: 'mock-fast', name: 'Mock Fast' }, { value: 'mock-smart', name: 'Mock Smart' }, { value: 'mock-long', name: 'Nemotron 3.5 Lightning (free)' }, ...(process.env.MOCK_MANY ? many() : [])] },
     { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: s.mode,
       options: [{ value: 'ask', name: 'Ask' }, { value: 'auto', name: 'Auto' }, { value: 'full-access', name: 'Full access' }] },
     { id: 'effort', name: 'Thinking', category: 'thought_level', type: 'select', currentValue: s.effort,
