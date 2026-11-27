@@ -1,6 +1,6 @@
 .{
     .name = .bm_relay,
-    .version = "0.1.4",
+    .version = "0.1.5",
     .fingerprint = 0x7b4dfa0c83becd84,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{

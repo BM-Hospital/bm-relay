@@ -3,6 +3,6 @@
     .name = "BM Relay",
     .identifier = "me.hunghg.bm-relay",
     .executable = "bm-relay",
-    .version = "0.1.4",
+    .version = "0.1.5",
     .icon = "resources/icon.png",
 }
