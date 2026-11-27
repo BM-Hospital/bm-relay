@@ -32,6 +32,8 @@ pub const Menus = struct {
     storage: ui.Menu = .{},
     folders: ui.Menu = .{},
     row: ui.Menu = .{},
+    /// The transcript's right-click menu, over selected text.
+    selection: ui.Menu = .{},
     /// The session the row menu is for.
     row_for: ?*Session = null,
     usage: ui.OverlayState = .{},
@@ -78,6 +80,9 @@ pub const App = struct {
     model_q: u64 = 0,
 
     menus: Menus = .{},
+    /// The text selected as the right-click menu opened: the press on its
+    /// Copy lets go of the selection before the click comes.
+    menu_text: std.ArrayList(u8) = .empty,
     dialog: ?state.Dialog = null,
     dialog_state: ui.OverlayState = .{},
     rename: ui.TextBuffer = .{},
@@ -207,6 +212,12 @@ pub const App = struct {
         a.redraw();
     }
 
+    /// Something copied: sonner's success toast, with its check.
+    pub fn copiedToast(a: *App, title: []const u8) void {
+        _ = a.toasts.success(title);
+        a.redraw();
+    }
+
     pub fn failToast(a: *App, title: []const u8) void {
         _ = a.toasts.failure(title);
         a.redraw();
@@ -225,6 +236,7 @@ pub const App = struct {
         a.attachments.deinit(a.gpa);
         a.dnd.deinit();
         a.composer.deinit();
+        a.menu_text.deinit(a.gpa);
         if (a.changes) |*c| c.deinit(a.gpa);
         a.settings.deinit(a.gpa);
         a.palette.deinit(a.gpa);

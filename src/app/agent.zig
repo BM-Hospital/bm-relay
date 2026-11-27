@@ -441,7 +441,8 @@ fn update(a: *App, s: *Session, params: ?json.Value) void {
     s.target().apply(u, a.now());
     // A replay off screen moves nothing.
     if (s.replay != null) return;
-    a.to_end = true;
+    // The list follows its end by itself while the reader is there; one
+    // scrolled up to read is left where they are.
     a.redraw();
 }
 

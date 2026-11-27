@@ -83,7 +83,9 @@ fn label(c: *ui.Context, s: []const u8) void {
 }
 
 fn clippedText(c: *ui.Context, s: []const u8) void {
-    const b = ui.div(c).grow().clip();
+    // `w(0)`: it takes the room left, not its words' width (which pushed
+    // the row past the composer and over its cross).
+    const b = ui.div(c).grow().w(0).clip();
     defer b.end();
     ui.text(c, s, .{ .size = 13 });
 }
@@ -258,7 +260,9 @@ fn attachments(a: *App, c: *ui.Context) void {
         c.keyed(i);
         const shot = ui.div(c).w(56).h(56);
         const hot = shot.hovered();
-        _ = ui.image(c, .{ .key = img.name, .bytes = img.bytes, .size = .{ .w = 56, .h = 56 }, .radius = 10 });
+        // Keyed by its bytes: every pasted picture is named "Pasted image",
+        // and a key is decoded once, so a name showed the first one pasted.
+        _ = ui.image(c, .{ .key = c.print("draft:{x}:{d}", .{ @intFromPtr(img.bytes.ptr), img.bytes.len }), .bytes = img.bytes, .size = .{ .w = 56, .h = 56 }, .radius = 10 });
         {
             const x = ui.div(c).absolute().offset(40, -6).w(22).h(22).center().rounded(11).bg(t.gray_100).opacity(if (hot) 1 else 0);
             {

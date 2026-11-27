@@ -38,6 +38,24 @@ pub fn draw(a: *App, c: *ui.Context, s: *Session) void {
     const list_id = c.peekId(null);
     turnList(a, c, s, &s.rows, false, 40);
     toEndButton(a, c, box, list_id);
+    selectionMenu(a, c, box);
+}
+
+/// Right-clicked with text selected: a menu to copy it.
+fn selectionMenu(a: *App, c: *ui.Context, box: ui.Div) void {
+    const m = &a.menus.selection;
+    const was_open = m.state.open;
+    if (!was_open and c.selection.text.items.len == 0) return;
+    const menu = ui.contextMenu(c, m, box.interaction()) orelse return;
+    defer menu.end();
+    if (!was_open) {
+        a.menu_text.clearRetainingCapacity();
+        a.menu_text.appendSlice(a.gpa, c.selection.text.items) catch {};
+    }
+    if (menu.item("Copy", .{ .shortcut = "Ctrl+C", .disabled = a.menu_text.items.len == 0 })) {
+        myzig.clipboard.writeText(a.menu_text.items);
+        a.copiedToast("Copied");
+    }
 }
 
 /// Scrolled up from the end, past a screen: a round arrow at the bottom
@@ -163,7 +181,7 @@ fn drawTurn(a: *App, c: *ui.Context, s: *Session, index: usize, turn: *Turn, fil
         if (turn.md == null) turn.md = ui.Markdown.init(a.gpa);
         const r = ui.markdown(c, answer, .{ .state = &turn.md.?, .streaming = turn.running(), .size = 14, .images = @import("../app/pictures.zig").reader(a, c, s) });
         if (r.link) |url| _ = myzig.shell.openUrl(url);
-        if (r.copied != null) a.toast("Copied");
+        if (r.copied != null) a.copiedToast("Copied");
         if (!turn.running()) footer(a, c, s, turn, answer);
     }
     if (files.len > 0) timeline.filesCard(a, c, files);
@@ -188,7 +206,7 @@ fn promptActions(a: *App, c: *ui.Context, s: *Session, index: usize, turn: *Turn
     if (can and comp.iconButton(c, "pencil", 14, "Edit and send again")) turns.startEdit(a, s, index);
     if (comp.iconButton(c, "copy", 14, "Copy")) {
         myzig.clipboard.writeText(turn.prompt.items);
-        a.toast("Copied the prompt");
+        a.copiedToast("Copied the prompt");
     }
 }
 
@@ -326,7 +344,7 @@ fn footer(a: *App, c: *ui.Context, s: *Session, turn: *Turn, answer: []const u8)
     defer row.end();
     if (comp.iconButton(c, "copy", 14, "Copy the answer")) {
         myzig.clipboard.writeText(answer);
-        a.toast("Copied the answer");
+        a.copiedToast("Copied the answer");
     }
     if (!turn.timed) return;
     var buf: [128]u8 = undefined;

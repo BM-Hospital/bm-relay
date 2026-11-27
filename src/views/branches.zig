@@ -51,7 +51,7 @@ pub fn button(a: *App, c: *ui.Context, w: *Workspace, place: Place) void {
     m.separator();
     if (m.item("Copy branch name", .{ .icon = "copy" })) {
         myzig.clipboard.writeText(name);
-        a.toast("Copied the branch name");
+        a.copiedToast("Copied the branch name");
     }
 }
 
